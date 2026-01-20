@@ -1,0 +1,57 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Coffee Records</title>
+</head>
+<body>
+  <h1>Coffee Records</h1>
+  <p id="status">loading...</p>
+  <pre id="out" style="white-space:pre-wrap;"></pre>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbwTVElQ-Ao7U2lb3MGsYFj_Qy5K0C1bSw_IPk0ZFNPV9d0mGrpOZuukZCW9rbOgtc_6/exec";
+
+    // TTLキャッシュ（例：24時間）
+    const TTL_MS = 24 * 60 * 60 * 1000;
+    const LS_KEY = "coffeeRecordsCache_v1";
+
+    async function load() {
+      const statusEl = document.getElementById("status");
+      const outEl = document.getElementById("out");
+
+      // 1) キャッシュが新しければそれを表示
+      const cachedRaw = localStorage.getItem(LS_KEY);
+      if (cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw);
+          if (cached.savedAt && (Date.now() - cached.savedAt) < TTL_MS && cached.data) {
+            statusEl.textContent = "loaded from cache";
+            outEl.textContent = JSON.stringify(cached.data, null, 2);
+            return;
+          }
+        } catch (e) {}
+      }
+
+      // 2) 期限切れ or キャッシュなしならAPI取得
+      statusEl.textContent = "fetching from API...";
+      const res = await fetch(API_URL, { method: "GET" });
+      if (!res.ok) throw new Error("API error: " + res.status);
+
+      const data = await res.json();
+
+      // 3) 保存
+      localStorage.setItem(LS_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+
+      statusEl.textContent = "loaded from API";
+      outEl.textContent = JSON.stringify(data, null, 2);
+    }
+
+    load().catch(err => {
+      document.getElementById("status").textContent = "error";
+      document.getElementById("out").textContent = String(err);
+    });
+  </script>
+</body>
+</html>
