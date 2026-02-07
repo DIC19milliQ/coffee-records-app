@@ -9,6 +9,16 @@ const ISO3_BY_ISO2 = {
   BR: "BRA", CO: "COL", ET: "ETH", GT: "GTM", HN: "HND", ID: "IDN", KE: "KEN", PE: "PER", RW: "RWA", TZ: "TZA", VN: "VNM", YE: "YEM", CR: "CRI", PA: "PAN", BO: "BOL", BI: "BDI", EC: "ECU", SV: "SLV", IN: "IND", JM: "JAM", NI: "NIC", PG: "PNG", UG: "UGA", US: "USA", JP: "JPN", TH: "THA"
 };
 
+const LEGACY_ISO2_TO_CANONICAL = {
+  BU: "MM",
+  DD: "DE",
+  FX: "FR",
+  TP: "TL",
+  YD: "YE",
+  YU: "RS",
+  ZR: "CD"
+};
+
 const EXTRA_ALIASES = {
   US: ["United States", "United States of America", "アメリカ", "米国"],
   GB: ["UK", "U.K.", "United Kingdom", "イギリス"],
@@ -86,12 +96,18 @@ export function buildCountryNormalization(additionalAliases = {}) {
     });
   });
 
+  Object.entries(LEGACY_ISO2_TO_CANONICAL).forEach(([legacyIso2, canonicalIso2]) => {
+    if (!byIso2.has(canonicalIso2)) return;
+    byAlias.set(normalizeLoose(legacyIso2), canonicalIso2);
+  });
+
   const records = [...byIso2.values()].sort((a, b) => a.enName.localeCompare(b.enName, "en"));
 
   function resolveToIso2(value) {
     const raw = String(value || "").trim();
     if (!raw) return null;
     const upper = raw.toUpperCase();
+    if (/^[A-Z]{2}$/.test(upper) && LEGACY_ISO2_TO_CANONICAL[upper]) return LEGACY_ISO2_TO_CANONICAL[upper];
     if (/^[A-Z]{2}$/.test(upper) && byIso2.has(upper)) return upper;
     if (/^[A-Z]{3}$/.test(upper) && byIso3.has(upper)) return byIso3.get(upper);
     return byAlias.get(normalizeLoose(raw)) || null;
@@ -129,5 +145,11 @@ export function buildCountryNormalization(additionalAliases = {}) {
     return null;
   }
 
-  return { records, resolveToIso2, getRecord, resolveFeatureToIso2 };
+  return {
+    records,
+    resolveToIso2,
+    getRecord,
+    resolveFeatureToIso2,
+    legacyIso2ToCanonical: { ...LEGACY_ISO2_TO_CANONICAL }
+  };
 }

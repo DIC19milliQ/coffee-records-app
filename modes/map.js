@@ -112,6 +112,40 @@ export function initMap(container, context) {
 
   let mapApi = null;
 
+  function emitIso2Diagnostics(features, featureIso2, mappedStats) {
+    const targets = Array.isArray(globalThis.__MAP_ISO2_TRACE_COUNTRIES__)
+      ? globalThis.__MAP_ISO2_TRACE_COUNTRIES__
+      : [];
+    if (!targets.length) return;
+
+    targets.forEach((rawCountryInput) => {
+      const rawCountry = String(rawCountryInput || "").trim();
+      if (!rawCountry) return;
+      const mapped = state.mapping[rawCountry] || null;
+      const resolvedFromMapping = mapped ? countryNormalization.resolveToIso2(mapped) : null;
+      const normalizedCountry = normalizeLoose(rawCountry);
+      const relatedFeatures = features
+        .map((feature) => {
+          const props = feature.properties || {};
+          const name = props.name || props.NAME || props.ADMIN || props.name_en || "";
+          return {
+            name,
+            resolvedIso2: featureIso2.get(feature) || null,
+            hit: mappedStats.has(featureIso2.get(feature) || "")
+          };
+        })
+        .filter((entry) => normalizeLoose(entry.name) === normalizedCountry);
+
+      console.info("[Map ISO2 Diagnose]", {
+        rawCountry,
+        mappedValue: mapped,
+        resolvedFromMapping,
+        relatedFeatures,
+        mappedStatsHit: resolvedFromMapping ? mappedStats.has(resolvedFromMapping) : false
+      });
+    });
+  }
+
   async function loadWorldData() {
     if (state.worldFeatures) return state.worldFeatures;
     const response = await fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
@@ -434,6 +468,7 @@ export function initMap(container, context) {
     const featureIso2 = new Map(features.map((feature) => [feature, countryNormalization.resolveFeatureToIso2(feature)]));
     const stats = buildCountryAggregation();
     const mappedStats = stats.aggregated;
+    emitIso2Diagnostics(features, featureIso2, mappedStats);
     const values = [...mappedStats.values()].map((entry) => metricValue(entry, ui.metric)).filter((v) => Number.isFinite(v));
     const sorted = [...values].sort((a, b) => a - b);
     const p95 = sorted.length ? sorted[Math.floor((sorted.length - 1) * 0.95)] : 1;
