@@ -2,7 +2,6 @@ import { initSearch } from "./modes/search.js";
 import { initRanking } from "./modes/ranking.js";
 import { initAnalysis } from "./modes/analysis.js";
 import { initMap } from "./modes/map.js";
-import { initMapping } from "./modes/mapping.js";
 import { initAi } from "./modes/ai.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
@@ -102,7 +101,6 @@ const modes = {
   ranking: initRanking(document.getElementById("mode-ranking"), { state }),
   analysis: initAnalysis(document.getElementById("mode-analysis"), { state }),
   map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, ISO2_TO_NAME }),
-  mapping: initMapping(document.getElementById("mode-mapping"), { state }),
   ai: initAi(document.getElementById("mode-ai"), { state })
 };
 
@@ -111,7 +109,6 @@ function renderAll() {
   modes.ranking.render();
   modes.analysis.render();
   modes.map.render();
-  modes.mapping.render();
   modes.ai?.render?.();
 }
 
