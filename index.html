@@ -235,6 +235,70 @@
       border-radius: 999px;
       font-size: 0.8rem;
     }
+    .map-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: end;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .map-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 290px;
+      gap: 12px;
+      align-items: start;
+    }
+    .country-drawer {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+      position: sticky;
+      top: 8px;
+      min-height: 220px;
+    }
+    .drawer-metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .drawer-metrics div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .country-beans {
+      margin: 0;
+      padding-left: 18px;
+      max-height: 220px;
+      overflow: auto;
+    }
+    .suggestions {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .suggestion-item {
+      width: 100%;
+      text-align: left;
+      border-radius: 8px;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+    }
+    @media (max-width: 960px) {
+      .map-layout {
+        grid-template-columns: 1fr;
+      }
+      .country-drawer {
+        position: static;
+      }
+    }
 
     .analysis-controls {
       display: grid;

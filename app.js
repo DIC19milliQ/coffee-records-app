@@ -100,7 +100,7 @@ const modes = {
   search: initSearch(document.getElementById("mode-search"), { state, saveSearchPrefs }),
   ranking: initRanking(document.getElementById("mode-ranking"), { state }),
   analysis: initAnalysis(document.getElementById("mode-analysis"), { state }),
-  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, ISO2_TO_NAME }),
+  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, ISO2_TO_NAME, openSearchWithCountry }),
   ai: initAi(document.getElementById("mode-ai"), { state })
 };
 
@@ -121,13 +121,23 @@ function setupOptionalTabs() {
   }
 }
 
+function activateTab(tabName) {
+  document.querySelectorAll("nav button").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tabName));
+  document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `tab-${tabName}`));
+}
+
 function setupTabs() {
-  document.querySelectorAll("nav button").forEach((button) => button.addEventListener("click", () => {
-    document.querySelectorAll("nav button").forEach((btn) => btn.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
-    button.classList.add("active");
-    document.getElementById(`tab-${button.dataset.tab}`).classList.add("active");
-  }));
+  document.querySelectorAll("nav button").forEach((button) => button.addEventListener("click", () => activateTab(button.dataset.tab)));
+}
+
+function openSearchWithCountry(country) {
+  const value = String(country || "").trim();
+  if (!value) return;
+  state.search.query = value;
+  state.search.limit = 100;
+  activateTab("search");
+  document.querySelector("#mode-search #search-input").value = value;
+  modes.search.render();
 }
 
 async function loadData(force = false) {
