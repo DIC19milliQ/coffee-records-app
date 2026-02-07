@@ -552,7 +552,7 @@
 
     const state = {
       records: [], updatedAt: "--",
-      search: { query: "", columns: new Set(DEFAULT_VISIBLE_COLUMNS), limit: 100, sortKey: "date", sortDir: "desc", filters: { rating: new Set(), roast: new Set(), shop: new Set(), bitterMin: "", bitterMax: "", acidMin: "", acidMax: "" } },
+      search: { query: "", columns: new Set(DEFAULT_VISIBLE_COLUMNS), limit: 100, sortKey: "date", sortDir: "desc", filters: { rating: new Set(), roast: new Set(), bitterMin: "", bitterMax: "", acidMin: "", acidMax: "" } },
       selectedRecord: null,
       rankingMode: "bitter", worldFeatures: null, mapping: {}
     };
@@ -580,7 +580,7 @@
 
     function saveSearchPrefs() {
       const f = state.search.filters;
-      const payload = { columns: [...state.search.columns], sortKey: state.search.sortKey, sortDir: state.search.sortDir, filters: { rating: [...f.rating], roast: [...f.roast], shop: [...f.shop], bitterMin: f.bitterMin, bitterMax: f.bitterMax, acidMin: f.acidMin, acidMax: f.acidMax } };
+      const payload = { columns: [...state.search.columns], sortKey: state.search.sortKey, sortDir: state.search.sortDir, filters: { rating: [...f.rating], roast: [...f.roast], bitterMin: f.bitterMin, bitterMax: f.bitterMax, acidMin: f.acidMin, acidMax: f.acidMax } };
       localStorage.setItem(SEARCH_PREFS_KEY, JSON.stringify(payload));
     }
     function loadSearchPrefs() {
@@ -595,7 +595,6 @@
         const f = p.filters || {};
         state.search.filters.rating = new Set(f.rating || []);
         state.search.filters.roast = new Set(f.roast || []);
-        state.search.filters.shop = new Set(f.shop || []);
         state.search.filters.bitterMin = f.bitterMin ?? "";
         state.search.filters.bitterMax = f.bitterMax ?? "";
         state.search.filters.acidMin = f.acidMin ?? "";
@@ -628,7 +627,6 @@
     function setupTabs() { document.querySelectorAll("nav button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("nav button").forEach((btn) => btn.classList.remove("active")); document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active")); button.classList.add("active"); document.getElementById(`tab-${button.dataset.tab}`).classList.add("active"); })); }
     function debounce(fn, delay) { let timer = null; return (...args) => { if (timer) clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); }; }
 
-    function getQuickOptions(key) { return [...new Set(state.records.map((r) => String(r[key] || "").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ja")); }
 
     function renderQuickFilters() {
       const wrap = document.getElementById("quick-filters");
@@ -637,7 +635,6 @@
       wrap.innerHTML = [
         makeChecks("rating", "評価", ["S","A","B","C"]),
         makeChecks("roast", "焙煎", ["浅","中","中深","深"]),
-        makeChecks("shop", "ショップ", getQuickOptions("shop")),
         `<div class="filter-group"><h3>苦味 / 酸味</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><label>苦味最小<input id="f-bitter-min" type="number" min="1" max="5" value="${f.bitterMin}"></label><label>苦味最大<input id="f-bitter-max" type="number" min="1" max="5" value="${f.bitterMax}"></label><label>酸味最小<input id="f-acid-min" type="number" min="1" max="5" value="${f.acidMin}"></label><label>酸味最大<input id="f-acid-max" type="number" min="1" max="5" value="${f.acidMax}"></label></div></div>`
       ].join("");
 
@@ -680,7 +677,6 @@
         if (!tokens.every((token) => allText.includes(token))) return false;
         if (f.rating.size && !f.rating.has(String(record.rating || "").trim())) return false;
         if (f.roast.size && !f.roast.has(String(record.roast || "").trim())) return false;
-        if (f.shop.size && !f.shop.has(String(record.shop || "").trim())) return false;
         const b = validTaste(record.bitter); const a = validTaste(record.acid);
         const within = (v,min,max) => (min==="" || (v!==null && v>=Number(min))) && (max==="" || (v!==null && v<=Number(max)));
         if (!within(b, f.bitterMin, f.bitterMax)) return false;
