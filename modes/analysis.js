@@ -9,7 +9,6 @@ const AXES = [
   { key: "altitude_bin", label: "標高ビン", getValue: (record) => toAltitudeBin(record.altitude) }
 ];
 
-
 function toCategory(value) {
   const text = String(value ?? "").trim();
   return text || "不明";
@@ -47,33 +46,6 @@ function isHit(record, targetSet) {
   return targetSet === "S" ? rating === "S" : rating === "S" || rating === "A";
 }
 
-function bucketizeRows(records, axis1, targetSet, overallTargetCount, topN = 15) {
-  const byKey = new Map();
-  records.forEach((record) => {
-    const key = axis1.getValue(record);
-    if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key).push(record);
-  });
-  const allRows = [...byKey.entries()].map(([key, items]) => summarizeCell(items, records.length, targetSet, key, overallTargetCount));
-  const sortedBySize = [...allRows].sort((a, b) => b.n - a.n || b.hitRate - a.hitRate);
-  const majorKeys = new Set(sortedBySize.slice(0, topN).map((row) => row.key));
-  const majorRows = allRows.filter((row) => majorKeys.has(row.key));
-  const otherRecords = records.filter((record) => !majorKeys.has(axis1.getValue(record)));
-  const otherRow = otherRecords.length ? summarizeCell(otherRecords, records.length, targetSet, "その他", overallTargetCount) : null;
-  return [...majorRows.sort((a, b) => b.deltaPt - a.deltaPt || b.n - a.n), ...(otherRow ? [otherRow] : [])];
-}
-
-function summarizeCell(records, allCount, targetSet, key, overallTargetCount) {
-  const n = records.length;
-  const hitCount = records.filter((record) => isHit(record, targetSet)).length;
-  const overallHitCount = overallTargetCount;
-  const hitRate = n ? hitCount / n : 0;
-  const overallHitRate = allCount ? overallHitCount / allCount : 0;
-  const deltaPt = hitRate - overallHitRate;
-  const shareInTarget = overallHitCount ? hitCount / overallHitCount : 0;
-  return { key, n, hitCount, hitRate, overallHitRate, deltaPt, shareInTarget, records };
-}
-
 function sampleClass(n) {
   if (n < 3) return "insufficient";
   if (n < 5) return "small";
@@ -84,10 +56,34 @@ function formatRate(value) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function renderMetric(cell, allowInsufficient = false) {
-  const cls = sampleClass(cell.n);
-  if (cls === "insufficient" && !allowInsufficient) return "—";
-  return `${formatRate(cell.hitRate)} / Δ${(cell.deltaPt * 100).toFixed(1)}pt / n=${cell.n}`;
+function sortByHitRate(rows) {
+  return [...rows].sort((a, b) => b.hitRate - a.hitRate || b.n - a.n || String(a.key).localeCompare(String(b.key), "ja"));
+}
+
+function summarize(records, allCount, targetSet, key, overallHitRate = 0) {
+  const n = records.length;
+  const hitCount = records.filter((record) => isHit(record, targetSet)).length;
+  const hitRate = n ? hitCount / n : 0;
+  return {
+    key,
+    n,
+    hitCount,
+    hitRate,
+    deltaPt: hitRate - overallHitRate,
+    counts: {
+      S: records.filter((record) => normalizeText(record.rating).toUpperCase() === "S").length,
+      A: records.filter((record) => normalizeText(record.rating).toUpperCase() === "A").length,
+      B: records.filter((record) => normalizeText(record.rating).toUpperCase() === "B").length,
+      C: records.filter((record) => normalizeText(record.rating).toUpperCase() === "C").length
+    },
+    records
+  };
+}
+
+function getCellDisplay(cell) {
+  if (cell.n < 3) return { rateText: "—", nText: "", className: "insufficient", canClick: false };
+  if (cell.n < 5) return { rateText: formatRate(cell.hitRate), nText: `(n=${cell.n})`, className: "small", canClick: true };
+  return { rateText: formatRate(cell.hitRate), nText: `n=${cell.n}`, className: "ok", canClick: true };
 }
 
 export function initAnalysis(container, context) {
@@ -99,23 +95,25 @@ export function initAnalysis(container, context) {
     axis2: "process",
     filterAxis: "roast",
     filterValue: "",
-    selectedDetail: []
+    detailRecords: [],
+    detailSummary: null,
+    overallHitRate: 0
   };
 
   container.innerHTML = `
     <div class="card">
       <h2>分析モード（意思決定用）</h2>
-      <p class="muted">注記: n&lt;3 はサンプル不足で “—” 表示、3≦n&lt;5 は参考表示です。</p>
+      <p class="muted">サンプル基準：n&lt;3は表示なし、3–4は参考表示</p>
       <div class="analysis-controls">
         <div>
-          <label>1) 対象評価セット</label>
+          <label>対象評価セット</label>
           <select id="analysis-target-set">
             <option value="S">Sのみ</option>
             <option value="SA">S + A</option>
           </select>
         </div>
         <div>
-          <label>2) 分析タイプ</label>
+          <label>分析タイプ</label>
           <select id="analysis-type">
             <option value="one">1軸</option>
             <option value="two">2軸</option>
@@ -127,37 +125,46 @@ export function initAnalysis(container, context) {
       <p id="analysis-overall" class="muted"></p>
     </div>
     <div class="card" id="analysis-result"></div>
-    <div class="card">
+    <div class="card analysis-detail-panel">
       <h3>詳細パネル</h3>
-      <p class="muted">行/セルを選択すると該当する豆を表示します。</p>
-      <div class="table-wrap"><table><thead><tr><th>豆</th><th>国</th><th>焙煎</th><th>精製</th><th>苦味</th><th>酸味</th><th>評価</th><th>メモ</th></tr></thead><tbody id="analysis-detail"></tbody></table></div>
+      <div id="analysis-detail-summary" class="muted">行/セルを選択すると詳細を表示します。</div>
+      <div class="table-wrap detail-scroll"><table><thead><tr><th>bean</th><th>rating</th><th>roast</th><th>process</th><th>note</th></tr></thead><tbody id="analysis-detail"></tbody></table></div>
     </div>`;
 
   function axisByKey(key) {
     return AXES.find((axis) => axis.key === key) || AXES[0];
   }
 
-  function selectHtml(id, value, options) {
+  function selectHtml(id, label, value, options) {
     const optionHtml = options.map((option) => `<option value="${option.value}" ${option.value === value ? "selected" : ""}>${option.label}</option>`).join("");
-    return `<div><label>${id}</label><select id="${id}">${optionHtml}</select></div>`;
+    return `<div><label>${label}</label><select id="${id}">${optionHtml}</select></div>`;
   }
 
   function updateAxisControls() {
     const axisOptions = AXES.map((axis) => ({ value: axis.key, label: axis.label }));
     const root = container.querySelector("#axis-controls");
-    let html = selectHtml("analysis-axis1", ui.axis1, axisOptions);
-    if (ui.type !== "one") html += selectHtml("analysis-axis2", ui.axis2, axisOptions.filter((option) => option.value !== ui.axis1));
-    if (ui.type === "two-filter") {
-      html += selectHtml("analysis-filter-axis", ui.filterAxis, axisOptions.filter((option) => option.value !== ui.axis1 && option.value !== ui.axis2));
-      const values = [...new Set(state.records.map((record) => axisByKey(ui.filterAxis).getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
-      const valueOptions = values.map((value) => ({ value, label: String(value) }));
-      if (!values.includes(ui.filterValue)) ui.filterValue = values[0] || "";
-      html += selectHtml("analysis-filter-value", ui.filterValue, valueOptions);
+    let html = selectHtml("analysis-axis1", "Axis1", ui.axis1, axisOptions);
+
+    if (ui.type !== "one") {
+      const axis2Options = axisOptions.filter((option) => option.value !== ui.axis1);
+      if (!axis2Options.some((option) => option.value === ui.axis2)) ui.axis2 = axis2Options[0]?.value || ui.axis2;
+      html += selectHtml("analysis-axis2", "Axis2", ui.axis2, axis2Options);
     }
+
+    if (ui.type === "two-filter") {
+      const filterAxisOptions = axisOptions.filter((option) => option.value !== ui.axis1 && option.value !== ui.axis2);
+      if (!filterAxisOptions.some((option) => option.value === ui.filterAxis)) ui.filterAxis = filterAxisOptions[0]?.value || ui.filterAxis;
+      html += selectHtml("analysis-filter-axis", "FilterAxis", ui.filterAxis, filterAxisOptions);
+
+      const values = [...new Set(state.records.map((record) => axisByKey(ui.filterAxis).getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
+      if (!values.includes(ui.filterValue)) ui.filterValue = values[0] || "";
+      const valueOptions = values.map((value) => ({ value, label: String(value) }));
+      html += selectHtml("analysis-filter-value", "FilterValue", ui.filterValue, valueOptions);
+    }
+
     root.innerHTML = html;
     root.querySelector("#analysis-axis1")?.addEventListener("change", (event) => {
       ui.axis1 = event.target.value;
-      if (ui.axis2 === ui.axis1) ui.axis2 = AXES.find((axis) => axis.key !== ui.axis1)?.key || ui.axis1;
       render();
     });
     root.querySelector("#analysis-axis2")?.addEventListener("change", (event) => {
@@ -175,90 +182,120 @@ export function initAnalysis(container, context) {
     });
   }
 
-  function attachDetailClickHandlers() {
-    container.querySelectorAll("[data-detail-index]").forEach((row) => {
-      row.addEventListener("click", () => {
-        const index = Number(row.dataset.detailIndex);
-        if (Number.isInteger(index)) {
-          const details = JSON.parse(decodeURIComponent(row.dataset.detailPayload || "[]"));
-          ui.selectedDetail = details;
-          renderDetail();
-        }
+  function setDetail(records, label) {
+    const detailSummary = summarize(records, records.length, ui.targetSet, label, ui.overallHitRate);
+    ui.detailRecords = records;
+    ui.detailSummary = detailSummary;
+    renderDetail();
+  }
+
+  function attachDetailHandlers() {
+    container.querySelectorAll("[data-analysis-detail]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const records = JSON.parse(decodeURIComponent(node.dataset.analysisDetail || "[]"));
+        const label = decodeURIComponent(node.dataset.analysisLabel || "");
+        setDetail(records, label || "選択項目");
       });
     });
   }
 
   function renderDetail() {
     const tbody = container.querySelector("#analysis-detail");
-    tbody.innerHTML = "";
-    if (!ui.selectedDetail.length) {
-      tbody.innerHTML = "<tr><td colspan='8' class='muted'>未選択</td></tr>";
+    const summaryEl = container.querySelector("#analysis-detail-summary");
+    if (!ui.detailRecords.length || !ui.detailSummary) {
+      summaryEl.textContent = "行/セルを選択すると詳細を表示します。";
+      tbody.innerHTML = "<tr><td colspan='5' class='muted'>未選択</td></tr>";
       return;
     }
-    ui.selectedDetail.forEach((record) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${display(record.bean)}</td><td>${display(record.country)}</td><td>${display(record.roast)}</td><td>${display(record.process)}</td><td>${display(record.bitter)}</td><td>${display(record.acid)}</td><td>${display(record.rating)}</td><td>${display(record.note)}</td>`;
-      tbody.appendChild(tr);
-    });
+
+    summaryEl.innerHTML = `<strong>${display(ui.detailSummary.key)}</strong> | S:${ui.detailSummary.counts.S} / A:${ui.detailSummary.counts.A} / B:${ui.detailSummary.counts.B} / C:${ui.detailSummary.counts.C} | 当たり率 ${formatRate(ui.detailSummary.hitRate)} | 平均差 ${(ui.detailSummary.deltaPt * 100).toFixed(1)}pt`;
+
+    tbody.innerHTML = ui.detailRecords.map((record) => `<tr><td>${display(record.bean)}</td><td>${display(record.rating)}</td><td>${display(record.roast)}</td><td>${display(record.process)}</td><td>${display(record.note)}</td></tr>`).join("");
   }
 
   function renderOneAxis(records) {
     const axis1 = axisByKey(ui.axis1);
-    const overallTargetCount = records.filter((record) => isHit(record, ui.targetSet)).length;
-    const rows = bucketizeRows(records, axis1, ui.targetSet, overallTargetCount);
-    const result = container.querySelector("#analysis-result");
-    const htmlRows = rows.map((row, index) => {
-      const cls = sampleClass(row.n);
-      const note = cls === "insufficient" ? "サンプル不足" : cls === "small" ? "参考" : "";
-      const metric = cls === "insufficient" ? "—" : `${formatRate(row.hitRate)} / Δ${(row.deltaPt * 100).toFixed(1)}pt`;
-      return `<tr class="expandable ${cls}" data-detail-index="${index}" data-detail-payload='${encodeURIComponent(JSON.stringify(row.records))}'><td>${row.key}</td><td>${row.n}</td><td>${metric}</td><td>${formatRate(row.shareInTarget)}</td><td>${note}</td></tr>`;
+    const rawRows = [...new Map(records.map((record) => [axis1.getValue(record), null])).keys()].map((key) => {
+      const items = records.filter((record) => axis1.getValue(record) === key);
+      return summarize(items, records.length, ui.targetSet, key, ui.overallHitRate);
+    });
+
+    const sorted = sortByHitRate(rawRows);
+    const topRows = sorted.slice(0, 15);
+    const topKeys = new Set(topRows.map((row) => row.key));
+    const otherRecords = records.filter((record) => !topKeys.has(axis1.getValue(record)));
+    const rows = otherRecords.length ? [...topRows, summarize(otherRecords, records.length, ui.targetSet, "その他", ui.overallHitRate)] : topRows;
+
+    const body = rows.map((row) => {
+      const displayCell = getCellDisplay(row);
+      return `<tr class="expandable ${displayCell.className}" data-analysis-detail="${encodeURIComponent(JSON.stringify(row.records))}" data-analysis-label="${encodeURIComponent(String(row.key))}">
+        <td>${display(row.key)}</td>
+        <td>
+          <div class="metric-main">${displayCell.rateText}</div>
+          <div class="metric-sub">${displayCell.nText || `n=${row.n}`}</div>
+        </td>
+      </tr>`;
     }).join("");
-    result.innerHTML = `<h3>結果: 1軸 (${axis1.label})</h3><div class="table-wrap"><table><thead><tr><th>カテゴリ</th><th>n</th><th>hitRate / deltaPt</th><th>shareInTarget</th><th>注記</th></tr></thead><tbody>${htmlRows || "<tr><td colspan='5'>データなし</td></tr>"}</tbody></table></div>`;
-    attachDetailClickHandlers();
+
+    container.querySelector("#analysis-result").innerHTML = `
+      <h3>主結果（1軸: ${axis1.label}）</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>カテゴリ</th><th>当たり率 / n</th></tr></thead>
+        <tbody>${body || "<tr><td colspan='2'>データなし</td></tr>"}</tbody>
+      </table></div>`;
+
+    attachDetailHandlers();
   }
 
   function renderTwoAxis(records) {
     const axis1 = axisByKey(ui.axis1);
     const axis2 = axisByKey(ui.axis2);
-    const rows = [...new Set(records.map((record) => axis1.getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
-    const cols = [...new Set(records.map((record) => axis2.getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
-    const matrix = new Map();
-    const overallTargetCount = records.filter((record) => isHit(record, ui.targetSet)).length;
-    rows.forEach((rowKey) => {
-      cols.forEach((colKey) => {
-        const cellRecords = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey);
-        matrix.set(`${rowKey}__${colKey}`, summarizeCell(cellRecords, records.length, ui.targetSet, `${rowKey}/${colKey}`, overallTargetCount));
-      });
-    });
-    let detailIndex = 0;
-    const bodyHtml = rows.map((rowKey) => {
-      const cells = cols.map((colKey) => {
-        const cell = matrix.get(`${rowKey}__${colKey}`);
-        const metric = renderMetric(cell);
-        const canShow = metric !== "—";
-        const note = sampleClass(cell.n) === "small" ? " (参考)" : "";
-        const attrs = canShow ? `class="expandable" data-detail-index="${detailIndex++}" data-detail-payload='${encodeURIComponent(JSON.stringify(cell.records))}'` : "";
-        return `<td ${attrs} title="n=${cell.n}">${metric}${canShow ? note : ""}</td>`;
+    const rowKeys = [...new Set(records.map((record) => axis1.getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
+    const colKeys = [...new Set(records.map((record) => axis2.getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
+
+    const cells = rowKeys.flatMap((rowKey) => colKeys.map((colKey) => {
+      const list = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey);
+      return { rowKey, colKey, summary: summarize(list, records.length, ui.targetSet, `${rowKey} × ${colKey}`, ui.overallHitRate) };
+    }));
+
+    const gridTemplate = `180px repeat(${Math.max(colKeys.length, 1)}, minmax(90px, 1fr))`;
+    const headCols = colKeys.map((colKey) => `<div class="heatmap-col-header">${display(colKey)}</div>`).join("");
+    const rowsHtml = rowKeys.map((rowKey) => {
+      const rowCells = colKeys.map((colKey) => {
+        const cell = cells.find((item) => item.rowKey === rowKey && item.colKey === colKey)?.summary;
+        if (!cell) return "<div class='heatmap-cell empty'>—</div>";
+        const displayCell = getCellDisplay(cell);
+        const opacity = cell.n < 3 ? 0.2 : Math.max(0.22, cell.hitRate);
+        return `<button type="button" class="heatmap-cell ${displayCell.className} ${displayCell.canClick ? "clickable" : ""}" style="--heat:${opacity};" ${displayCell.canClick ? `data-analysis-detail="${encodeURIComponent(JSON.stringify(cell.records))}" data-analysis-label="${encodeURIComponent(`${rowKey} × ${colKey}`)}"` : "disabled"}>
+            <div class="metric-main">${displayCell.rateText}</div>
+            <div class="metric-sub">${displayCell.nText || `n=${cell.n}`}</div>
+          </button>`;
       }).join("");
-      return `<tr><th>${rowKey}</th>${cells}</tr>`;
+      return `<div class="heatmap-row-label">${display(rowKey)}</div>${rowCells}`;
     }).join("");
-    const headHtml = cols.map((col) => `<th>${col}</th>`).join("");
-    const result = container.querySelector("#analysis-result");
-    result.innerHTML = `<h3>結果: ${axis1.label} × ${axis2.label}</h3><div class="table-wrap"><table><thead><tr><th>${axis1.label} \ ${axis2.label}</th>${headHtml}</tr></thead><tbody>${bodyHtml || "<tr><td>データなし</td></tr>"}</tbody></table></div>`;
-    attachDetailClickHandlers();
+
+    container.querySelector("#analysis-result").innerHTML = `
+      <h3>主結果（${axis1.label} × ${axis2.label}）</h3>
+      <div class="analysis-heatmap" style="grid-template-columns:${gridTemplate};">
+        <div></div>
+        ${headCols}
+        ${rowsHtml}
+      </div>`;
+
+    attachDetailHandlers();
   }
 
   function render() {
     const all = state.records;
-    const filtered = ui.type === "two-filter"
-      ? all.filter((record) => axisByKey(ui.filterAxis).getValue(record) === ui.filterValue)
-      : all;
-    const targetCount = filtered.filter((record) => isHit(record, ui.targetSet)).length;
-    const overallHitRate = filtered.length ? targetCount / filtered.length : 0;
-    container.querySelector("#analysis-overall").textContent = `全体基準 hitRate: ${formatRate(overallHitRate)} （対象 ${ui.targetSet === "S" ? "S" : "S+A"} / 全${filtered.length}件）`;
     updateAxisControls();
+    const filtered = ui.type === "two-filter" ? all.filter((record) => axisByKey(ui.filterAxis).getValue(record) === ui.filterValue) : all;
+    const targetCount = filtered.filter((record) => isHit(record, ui.targetSet)).length;
+    ui.overallHitRate = filtered.length ? targetCount / filtered.length : 0;
+    container.querySelector("#analysis-overall").textContent = `全体当たり率: ${formatRate(ui.overallHitRate)}（対象 ${ui.targetSet === "S" ? "S" : "S+A"} / 全${filtered.length}件）`;
+
     if (ui.type === "one") renderOneAxis(filtered);
     else renderTwoAxis(filtered);
+
     renderDetail();
   }
 
