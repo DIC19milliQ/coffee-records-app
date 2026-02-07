@@ -59,7 +59,8 @@ export function initMap(container, context) {
     unknownCountrySignature: "",
     selectedUnjoinableIso2: "",
     latestSaveStatus: "",
-    focusIso2: ""
+    focusIso2: "",
+    selectedDiagnoseCountry: ""
   };
   let countryAliasIndex = new Map();
   let aliasDictionaryLoaded = false;
@@ -81,8 +82,12 @@ export function initMap(container, context) {
         </label>
         <button id="fit-world" class="ghost">世界全体</button>
         <button id="open-mapping" class="ghost">マッピング管理</button>
+        <label>診断対象国
+          <select id="diagnose-country-select"></select>
+        </label>
         <button id="diagnose-selected" class="ghost">診断ログ出力</button>
       </div>
+      <div id="diagnose-status" class="muted">使い方: ①「診断対象国」を選ぶ ②「診断ログ出力」を押す。</div>
       <div class="map-layout">
         <div>
           <div id="map"></div>
@@ -120,6 +125,7 @@ export function initMap(container, context) {
             <tbody id="mapping-table"></tbody>
           </table>
         </div>
+        <section id="mapping-guide" class="mapping-guide"></section>
       </div>
       <div class="dialog-actions">
         <button id="close-mapping" class="ghost">閉じる</button>
@@ -294,6 +300,67 @@ export function initMap(container, context) {
     };
   }
 
+
+  function pickReportCheck(report, legacyKey, nestedKey) {
+    if (typeof report?.[legacyKey] === "boolean") return report[legacyKey];
+    if (typeof report?.checks?.[nestedKey] === "boolean") return report.checks[nestedKey];
+    return false;
+  }
+
+  function renderDiagnoseStatus(report) {
+    const host = container.querySelector("#diagnose-status");
+    if (!host) return;
+    if (!report) {
+      host.classList.add("is-warning");
+      host.textContent = "対象国を選択してください（上部の「診断対象国」から選べます）";
+      return;
+    }
+    const hasFeature = pickReportCheck(report, "hasFeature", "featureExists");
+    const hasJoin = pickReportCheck(report, "hasJoin", "mappedStatsJoinable");
+    const featureDetail = report.featureKey || report.aliasToken || "-";
+    host.classList.toggle("is-warning", !hasFeature || !hasJoin);
+    host.textContent = [
+      `rawCountry: ${report.rawCountry || "-"}`,
+      `iso2: ${report.iso2 || "-"}`,
+      `feature: ${hasFeature ? "FOUND" : "NOT FOUND"} (key: ${featureDetail})`,
+      `join: ${hasJoin ? "JOINED" : "NOT JOINED"}`
+    ].join("\n");
+  }
+
+  function renderNoGuide(rows) {
+    const host = container.querySelector("#mapping-guide");
+    if (!host) return;
+    const featureNo = rows.filter((row) => !row.featureExists);
+    const joinNo = rows.filter((row) => row.featureExists && !row.joinable);
+    if (!featureNo.length && !joinNo.length) {
+      host.innerHTML = `<h4>NO項目の対処ガイド</h4><p class="muted" style="margin:0;">現在、NO項目はありません。</p>`;
+      return;
+    }
+    const sections = [];
+    if (featureNo.length) {
+      sections.push(`
+        <div style="margin-bottom:8px;">
+          <strong>feature存在 = NO（${featureNo.length}件）</strong>
+          <ul>
+            <li>問題: 解決したISO2が地図featureに存在しない、またはISO_A2/ISO_A3/name/id解決でヒットしていません。</li>
+            <li>次の行動: rawCountry→iso2の解決結果を確認し、国名正規化/aliasを追加してください。</li>
+            <li>次の行動: feature解決ロジックと地図データのISOキーを照合し、必要に応じて地図データ更新を検討してください。</li>
+          </ul>
+        </div>`);
+    }
+    if (joinNo.length) {
+      sections.push(`
+        <div>
+          <strong>集計合流 = NO（${joinNo.length}件）</strong>
+          <ul>
+            <li>問題: 集計キーがISO2に揃っていない、またはrawCountry→iso2正規化が不一致で最終照合に失敗しています。</li>
+            <li>次の行動: 診断ログでrawCountry/iso2を確認し、alias・正規化ルールを追加してください。</li>
+            <li>次の行動: 既存保存値の後方互換変換（旧トークン→ISO2）と候補生成/最終照合の非対称を確認してください。</li>
+          </ul>
+        </div>`);
+    }
+    host.innerHTML = `<h4>NO項目の対処ガイド</h4>${sections.join("")}`;
+  }
   function renderSaveStatus(report) {
     const host = container.querySelector("#mapping-save-status");
     if (!report) {
@@ -310,6 +377,40 @@ export function initMap(container, context) {
 
   function metricValue(stats, metric) {
     return stats?.[metric] ?? null;
+  }
+
+  function listRawCountriesByCount() {
+    const counts = new Map();
+    state.records.forEach((record) => {
+      const rawCountry = normalizeCountryKey(record.country);
+      if (!rawCountry) return;
+      counts.set(rawCountry, (counts.get(rawCountry) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));
+  }
+
+  function renderDiagnoseCountryOptions() {
+    const select = container.querySelector("#diagnose-country-select");
+    if (!select) return;
+    const options = listRawCountriesByCount();
+    const preferred = ui.selectedDiagnoseCountry || select.value;
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = options.length ? "診断対象国を選択" : "診断対象国なし";
+    select.appendChild(placeholder);
+    options.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.name;
+      option.textContent = `${entry.name} (${entry.count})`;
+      select.appendChild(option);
+    });
+    if (preferred && options.some((entry) => entry.name === preferred)) {
+      select.value = preferred;
+    }
+    ui.selectedDiagnoseCountry = select.value;
   }
 
   function renderUnmapped(unmapped) {
@@ -445,13 +546,15 @@ export function initMap(container, context) {
         <td><input data-edit-display="${encodeURIComponent(row.country)}" type="text" value="${row.displayName}" /></td>
         <td>${row.token}</td>
         <td><input data-edit-iso2="${encodeURIComponent(row.country)}" type="text" value="${row.iso2}" /></td>
-        <td>${row.featureExists ? "yes" : "no"}</td>
-        <td>${row.joinable ? "yes" : "no"}</td>
+        <td><span class="status-chip ${row.featureExists ? "yes" : "no"}">${row.featureExists ? "YES" : "NO"}</span></td>
+        <td><span class="status-chip ${row.joinable ? "yes" : "no"}">${row.joinable ? "YES" : "NO"}</span></td>
         <td>${row.updatedAt}</td>
         <td><button class="ghost" data-save-country="${encodeURIComponent(row.country)}">更新</button></td>
         <td><button class="ghost" data-delete-country="${encodeURIComponent(row.country)}">削除</button></td>
       </tr>`).join("")
       : "<tr><td colspan='9' class='muted'>該当なし</td></tr>";
+
+    renderNoGuide(rows);
 
     table.querySelectorAll("[data-save-country]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -564,6 +667,7 @@ export function initMap(container, context) {
 
     mapApi = { fitWorld: () => fitFeature({ type: "FeatureCollection", features }), mappedStats, unmapped: stats.unmapped, featureIso2Set };
 
+    renderDiagnoseCountryOptions();
     renderUnmapped(stats.unmapped);
     renderUnjoinable(stats.unjoinable);
     renderSaveStatus(ui.latestSaveStatus);
@@ -619,6 +723,15 @@ export function initMap(container, context) {
     ui.suggestionList = getSuggestions(value, selectedCountry);
     renderSuggestions();
     renderInputHint(value);
+    const diagnoseSelect = container.querySelector("#diagnose-country-select");
+    if (diagnoseSelect && selectedCountry) {
+      diagnoseSelect.value = selectedCountry;
+      ui.selectedDiagnoseCountry = diagnoseSelect.value;
+    }
+  });
+
+  container.querySelector("#diagnose-country-select").addEventListener("change", (event) => {
+    ui.selectedDiagnoseCountry = event.target.value;
   });
 
   const dialog = container.querySelector("#mapping-dialog");
@@ -633,16 +746,21 @@ export function initMap(container, context) {
   });
 
   container.querySelector("#diagnose-selected").addEventListener("click", () => {
-    const country = container.querySelector("#unmapped-select").value;
-    if (!country) return;
+    const country = container.querySelector("#diagnose-country-select").value;
+    if (!country) {
+      renderDiagnoseStatus(null);
+      return;
+    }
     const resolved = resolveAliasToIso2(country, state.mappingModel);
-    emitMappingTrace(country, {
+    const report = {
       rawCountry: country,
       aliasToken: resolved.aliasToken,
       iso2: resolved.iso2,
       hasFeature: resolved.iso2 ? (mapApi?.featureIso2Set || new Set()).has(resolved.iso2) : false,
       hasJoin: resolved.iso2 ? (mapApi?.mappedStats || new Map()).has(resolved.iso2) : false
-    });
+    };
+    renderDiagnoseStatus(report);
+    emitMappingTrace(country, report);
   });
 
   return { render: renderMap };

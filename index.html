@@ -242,6 +242,59 @@
       flex-wrap: wrap;
       margin-bottom: 10px;
     }
+    #diagnose-status {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    #diagnose-status.is-warning {
+      border-color: #d9b15f;
+      background: #fff9ed;
+      color: #5d4824;
+    }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .status-chip.yes {
+      color: #1f6b41;
+      background: #e8f7ee;
+      border-color: #95dbb1;
+    }
+    .status-chip.no {
+      color: #8b1d1d;
+      background: #fdeced;
+      border-color: #ec9ea5;
+    }
+    .mapping-guide {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .mapping-guide h4 {
+      margin: 0 0 8px;
+      font-size: 0.92rem;
+    }
+    .mapping-guide ul {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 4px;
+    }
     .map-layout {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 290px;
