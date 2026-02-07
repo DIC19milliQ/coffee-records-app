@@ -3,13 +3,13 @@ import { initRanking } from "./modes/ranking.js";
 import { initAnalysis } from "./modes/analysis.js";
 import { initMap } from "./modes/map.js";
 import { buildCountryNormalization, normalizeCountryKey } from "./shared/countryNormalization.js";
+import { MAP_KEY, MAP_LEGACY_KEY, applyLegacyMapping, createEmptyMappingModel, normalizeModel } from "./shared/countryMapping.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
 
 const API_URL = "https://script.google.com/macros/s/AKfycbwTVElQ-Ao7U2lb3MGsYFj_Qy5K0C1bSw_IPk0ZFNPV9d0mGrpOZuukZCW9rbOgtc_6/exec";
 const TTL_MS = 60 * 60 * 1000;
 const LS_KEY = "coffeeRecordsCache_v2";
-const MAP_KEY = "coffeeCountryMapping_v1";
 const SEARCH_PREFS_KEY = "coffeeSearchPrefs_v1";
 
 const DEFAULT_MAPPING = {
@@ -23,7 +23,7 @@ const state = {
   search: { query: "", columns: new Set(DEFAULT_VISIBLE_COLUMNS), limit: 100, sortKey: "date", sortDir: "desc", filters: { rating: new Set(), roast: new Set(), bitterMin: "", bitterMax: "", acidMin: "", acidMax: "" } },
   rankingMode: "bitter",
   worldFeatures: null,
-  mapping: {}
+  mappingModel: createEmptyMappingModel()
 };
 
 const statusEl = document.getElementById("status");
@@ -41,30 +41,35 @@ function cacheGet() {
   } catch { return null; }
 }
 function loadMapping() {
-  const normalizeMappingEntries = (mapping) => {
-    const normalized = {};
-    Object.entries(mapping || {}).forEach(([rawCountry, mappedValue]) => {
-      const key = normalizeCountryKey(rawCountry);
-      if (!key) return;
-      normalized[key] = mappedValue;
-    });
-    return normalized;
-  };
+  const normalizedDefaults = Object.fromEntries(
+    Object.entries(DEFAULT_MAPPING)
+      .map(([rawCountry, mappedValue]) => [normalizeCountryKey(rawCountry), mappedValue])
+      .filter(([rawCountry]) => rawCountry)
+  );
+  let model = createEmptyMappingModel();
+  model = applyLegacyMapping(model, normalizedDefaults, countryNormalization);
+  try {
+    const savedV2 = JSON.parse(localStorage.getItem(MAP_KEY) || "null");
+    if (savedV2) model = normalizeModel(savedV2, countryNormalization);
+    model = applyLegacyMapping(model, normalizedDefaults, countryNormalization);
+  } catch {
+    // ignore parse errors and fallback to defaults
+  }
 
   try {
-    const saved = JSON.parse(localStorage.getItem(MAP_KEY) || "{}");
-    return { ...normalizeMappingEntries(DEFAULT_MAPPING), ...normalizeMappingEntries(saved) };
+    const legacy = JSON.parse(localStorage.getItem(MAP_LEGACY_KEY) || "{}");
+    model = applyLegacyMapping(model, legacy, countryNormalization);
+    localStorage.removeItem(MAP_LEGACY_KEY);
   } catch {
-    return { ...normalizeMappingEntries(DEFAULT_MAPPING) };
+    // ignore legacy parse errors
   }
+
+  saveMapping(model);
+  return model;
 }
-function saveMapping(mapping) {
-  const normalized = {};
-  Object.entries(mapping || {}).forEach(([rawCountry, mappedValue]) => {
-    const key = normalizeCountryKey(rawCountry);
-    if (!key) return;
-    normalized[key] = mappedValue;
-  });
+function saveMapping(model) {
+  const normalized = normalizeModel(model, countryNormalization);
+  normalized.updatedAt = new Date().toISOString();
   localStorage.setItem(MAP_KEY, JSON.stringify(normalized));
 }
 

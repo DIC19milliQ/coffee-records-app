@@ -1,5 +1,6 @@
 import { normalizeText } from "../shared/utils.js";
 import { inspectCountryString, normalizeCountryKey } from "../shared/countryNormalization.js";
+import { deleteAlias, resolveAliasToIso2, tokenFromIso2, upsertMapping } from "../shared/countryMapping.js";
 
 const RATING_SCORE = { S: 5, A: 3, B: 1 };
 
@@ -50,14 +51,24 @@ function scoreCandidate(queryNorm, candidateNorm) {
 export function initMap(container, context) {
   const { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry } = context;
   const isoCandidates = countryNormalization.records.map((record) => ({ code: record.iso2, name: record.enName }));
-  const ui = { metric: "uniqueBeans", selectedCountryIso2: "", manageFilter: "", suggestionList: [], unknownCountrySignature: "" };
+  const ui = {
+    metric: "uniqueBeans",
+    selectedCountryIso2: "",
+    manageFilter: "",
+    suggestionList: [],
+    unknownCountrySignature: "",
+    selectedUnjoinableIso2: "",
+    latestSaveStatus: "",
+    focusIso2: ""
+  };
   let countryAliasIndex = new Map();
   let aliasDictionaryLoaded = false;
 
   container.innerHTML = `
     <div class="card">
       <h2>産地マップ（記録・傾向）</h2>
-      <p class="muted">コーヒーベルトを初期表示。指標切替で国ごとの傾向を確認できます。</p>
+      <p class="muted">コーヒーベルトを初期表示。薄灰色=未合流、薄茶色=値ゼロ/最小を表します。</p>
+      <div id="mapping-save-status" class="muted"></div>
       <div class="map-toolbar">
         <label>色分け指標
           <select id="metric-select">
@@ -70,6 +81,7 @@ export function initMap(container, context) {
         </label>
         <button id="fit-world" class="ghost">世界全体</button>
         <button id="open-mapping" class="ghost">マッピング管理</button>
+        <button id="diagnose-selected" class="ghost">診断ログ出力</button>
       </div>
       <div class="map-layout">
         <div>
@@ -81,7 +93,6 @@ export function initMap(container, context) {
     </div>
     <div class="card">
       <h3>未マッピングの国</h3>
-      <p class="muted">現行レイアウトを維持しつつ、候補サジェストで登録を高速化しています。</p>
       <div id="unmapped-list"></div>
       <div class="grid-2" style="margin-top:12px;">
         <div><label>対象国</label><select id="unmapped-select"></select></div>
@@ -94,13 +105,18 @@ export function initMap(container, context) {
       </div>
       <button id="save-mapping" style="margin-top:12px;">マッピング保存</button>
     </div>
+    <div class="card">
+      <h3>mapped-but-unjoinable</h3>
+      <p class="muted">マッピング済みだが地図に合流できない国を表示します。</p>
+      <div id="unjoinable-list"></div>
+    </div>
     <dialog id="mapping-dialog">
       <div class="dialog-body">
         <h3 style="margin-top:0;">マッピング管理</h3>
-        <input id="mapping-search" type="text" placeholder="国名/ISO2で検索" />
+        <input id="mapping-search" type="text" placeholder="国名/ISO2/内部キーで検索" />
         <div class="table-wrap" style="margin-top:10px;max-height:50vh;overflow:auto;">
           <table>
-            <thead><tr><th>country表記</th><th>ISO2</th><th>件数</th><th>編集</th><th>削除</th></tr></thead>
+            <thead><tr><th>country表記</th><th>表示名</th><th>内部キー</th><th>resolved iso2</th><th>feature存在</th><th>集計合流</th><th>最終更新</th><th>編集</th><th>削除</th></tr></thead>
             <tbody id="mapping-table"></tbody>
           </table>
         </div>
@@ -113,40 +129,15 @@ export function initMap(container, context) {
 
   let mapApi = null;
 
-  function emitIso2Diagnostics(features, featureIso2, mappedStats) {
-    const targets = Array.isArray(globalThis.__MAP_ISO2_TRACE_COUNTRIES__)
-      ? globalThis.__MAP_ISO2_TRACE_COUNTRIES__
-      : [];
-    if (!targets.length) return;
+  function loadFeatureIso2Set(features) {
+    return new Set(features.map((feature) => countryNormalization.resolveFeatureToIso2(feature)).filter(Boolean));
+  }
 
-    targets.forEach((rawCountryInput) => {
-      const rawCountry = normalizeCountryKey(rawCountryInput);
-      if (!rawCountry) return;
-      const mapped = state.mapping[rawCountry] || null;
-      const resolvedFromMapping = mapped ? countryNormalization.resolveToIso2(mapped) : null;
-      const normalizedCountry = normalizeLoose(rawCountry);
-      const relatedFeatures = features
-        .map((feature) => {
-          const props = feature.properties || {};
-          const name = props.name || props.NAME || props.ADMIN || props.name_en || "";
-          return {
-            name,
-            resolvedIso2: featureIso2.get(feature) || null,
-            hit: mappedStats.has(featureIso2.get(feature) || "")
-          };
-        })
-        .filter((entry) => normalizeLoose(entry.name) === normalizedCountry);
-
-      console.info("[Map ISO2 Diagnose]", {
-        rawCountry,
-        recordCountryDiagnostics: inspectCountryString(rawCountryInput),
-        mappedValue: mapped,
-        mappedValueDiagnostics: inspectCountryString(mapped),
-        resolvedFromMapping,
-        relatedFeatures,
-        mappedStatsHit: resolvedFromMapping ? mappedStats.has(resolvedFromMapping) : false,
-        mappedStatsRow: resolvedFromMapping ? mappedStats.get(resolvedFromMapping) || null : null
-      });
+  function emitMappingTrace(rawCountry, report) {
+    console.info("[Map Mapping Diagnose]", {
+      rawCountry,
+      trace: report,
+      rawCountryDiagnostics: inspectCountryString(rawCountry)
     });
   }
 
@@ -174,7 +165,7 @@ export function initMap(container, context) {
     }
   }
 
-  function resolveRawCountryToIso2(rawCountry) {
+  function resolveRawCountryFallbackIso2(rawCountry) {
     const raw = normalizeCountryKey(rawCountry);
     if (!raw) return null;
     const directIso2 = countryNormalization.resolveToIso2(raw);
@@ -186,26 +177,24 @@ export function initMap(container, context) {
 
   function seedMappingFromRecords() {
     const rawCountries = [...new Set(state.records.map((record) => normalizeCountryKey(record.country)).filter(Boolean))];
-    let changed = false;
     const unresolved = [];
+    let changed = false;
 
     rawCountries.forEach((rawCountry) => {
-      const mappedValue = state.mapping[rawCountry];
-      const mappedIso2 = countryNormalization.resolveToIso2(mappedValue);
-      if (mappedIso2) {
-        if (mappedValue !== mappedIso2) {
-          state.mapping[rawCountry] = mappedIso2;
-          changed = true;
-        }
+      const resolved = resolveAliasToIso2(rawCountry, state.mappingModel);
+      if (resolved.iso2) return;
+      const fallbackIso2 = resolveRawCountryFallbackIso2(rawCountry);
+      if (!fallbackIso2) {
+        unresolved.push(rawCountry);
         return;
       }
-      const resolvedFromRaw = resolveRawCountryToIso2(rawCountry);
-      if (resolvedFromRaw) {
-        state.mapping[rawCountry] = resolvedFromRaw;
-        changed = true;
-        return;
-      }
-      unresolved.push(rawCountry);
+      upsertMapping(state.mappingModel, {
+        rawCountry,
+        token: tokenFromIso2(fallbackIso2),
+        iso2: fallbackIso2,
+        displayName: countryNormalization.getRecord(fallbackIso2)?.enName || fallbackIso2
+      });
+      changed = true;
     });
 
     const signature = unresolved.sort((a, b) => a.localeCompare(b, "ja")).join("|");
@@ -213,27 +202,7 @@ export function initMap(container, context) {
       console.warn("[Map] country_aliases に未登録の country が見つかりました:", unresolved);
     }
     ui.unknownCountrySignature = signature;
-
-    if (changed) saveMapping(state.mapping);
-    return changed;
-  }
-
-  function resolveSavedMappingToIso2(rawCountry) {
-    const mapped = state.mapping[rawCountry];
-    if (!mapped) return null;
-    return countryNormalization.resolveToIso2(mapped);
-  }
-
-  function normalizeMappingTable() {
-    let changed = false;
-    Object.entries(state.mapping).forEach(([rawCountry, mapped]) => {
-      const iso2 = countryNormalization.resolveToIso2(mapped);
-      if (iso2 && mapped !== iso2) {
-        state.mapping[rawCountry] = iso2;
-        changed = true;
-      }
-    });
-    if (changed) saveMapping(state.mapping);
+    if (changed) saveMapping(state.mappingModel);
   }
 
   function parseRatingScore(record) {
@@ -243,7 +212,7 @@ export function initMap(container, context) {
     return 0;
   }
 
-  function buildCountryAggregation() {
+  function buildCountryAggregation(featureIso2Set) {
     const byRawCountry = new Map();
     state.records.forEach((record) => {
       const rawCountry = normalizeCountryKey(record.country);
@@ -254,22 +223,19 @@ export function initMap(container, context) {
 
     const byMapCountry = new Map();
     const unmapped = [];
-    let changed = false;
+    const unjoinable = [];
+
     byRawCountry.forEach((records, rawCountry) => {
-      let iso2 = resolveSavedMappingToIso2(rawCountry);
-      if (!iso2) {
-        iso2 = resolveRawCountryToIso2(rawCountry);
-        if (iso2) {
-          state.mapping[rawCountry] = iso2;
-          changed = true;
-        }
-      }
-      if (!iso2) {
+      const resolved = resolveAliasToIso2(rawCountry, state.mappingModel);
+      if (!resolved.iso2) {
         unmapped.push({ name: rawCountry, count: records.length });
         return;
       }
-      if (!byMapCountry.has(iso2)) byMapCountry.set(iso2, { records: [], rawCountries: [] });
-      const slot = byMapCountry.get(iso2);
+      if (!featureIso2Set.has(resolved.iso2)) {
+        unjoinable.push({ rawCountry, iso2: resolved.iso2, reason: "feature-not-found", count: records.length });
+      }
+      if (!byMapCountry.has(resolved.iso2)) byMapCountry.set(resolved.iso2, { records: [], rawCountries: [] });
+      const slot = byMapCountry.get(resolved.iso2);
       slot.records.push(...records);
       slot.rawCountries.push(rawCountry);
     });
@@ -307,8 +273,39 @@ export function initMap(container, context) {
       });
     });
 
-    if (changed) saveMapping(state.mapping);
-    return { aggregated, unmapped: unmapped.sort((a, b) => b.count - a.count) };
+    return {
+      aggregated,
+      unmapped: unmapped.sort((a, b) => b.count - a.count),
+      unjoinable: unjoinable.sort((a, b) => b.count - a.count)
+    };
+  }
+
+  function validateMappingSave(rawCountry, iso2, featureIso2Set, mappedStats) {
+    const checks = {
+      mappedIso2Resolved: Boolean(iso2),
+      featureExists: iso2 ? featureIso2Set.has(iso2) : false,
+      mappedStatsJoinable: iso2 ? mappedStats.has(iso2) : false
+    };
+    return {
+      rawCountry,
+      iso2,
+      checks,
+      status: checks.mappedIso2Resolved && checks.featureExists && checks.mappedStatsJoinable ? "ok" : "warning"
+    };
+  }
+
+  function renderSaveStatus(report) {
+    const host = container.querySelector("#mapping-save-status");
+    if (!report) {
+      host.textContent = "";
+      return;
+    }
+    const { rawCountry, iso2, checks } = report;
+    if (report.status === "ok") {
+      host.textContent = `保存成功: ${rawCountry} → ${iso2}（地図・集計に反映済み）`;
+      return;
+    }
+    host.textContent = `保存済みだが未反映の可能性: ${rawCountry} → ${iso2 || "-"} / iso2:${checks.mappedIso2Resolved ? "ok" : "ng"} feature:${checks.featureExists ? "ok" : "ng"} join:${checks.mappedStatsJoinable ? "ok" : "ng"}`;
   }
 
   function metricValue(stats, metric) {
@@ -339,6 +336,16 @@ export function initMap(container, context) {
       select.appendChild(option);
     });
     list.appendChild(chips);
+  }
+
+  function renderUnjoinable(unjoinable) {
+    const host = container.querySelector("#unjoinable-list");
+    host.innerHTML = "";
+    if (!unjoinable.length) {
+      host.textContent = "該当なし";
+      return;
+    }
+    host.innerHTML = `<ul>${unjoinable.map((entry) => `<li>${entry.rawCountry} → ${entry.iso2} (${entry.reason}, ${entry.count}件)</li>`).join("")}</ul>`;
   }
 
   function getSuggestions(text, selectedCountry) {
@@ -383,8 +390,7 @@ export function initMap(container, context) {
       return;
     }
     const rec = countryNormalization.getRecord(iso2);
-    const ja = rec?.aliases?.find((alias) => /[\u3040-\u30ff\u4e00-\u9faf]/.test(alias));
-    hint.textContent = `${iso2}: ${rec?.enName || iso2}${ja ? ` / ${ja}` : ""}`;
+    hint.textContent = `${iso2}: ${rec?.enName || iso2} / internalKey: ${tokenFromIso2(iso2)}`;
   }
 
   function renderDrawer(stats) {
@@ -404,51 +410,64 @@ export function initMap(container, context) {
         <div><span class="muted">ユニーク豆数</span><strong>${stats.uniqueBeans}</strong></div>
         <div><span class="muted">平均評価</span><strong>${formatMetric("avgRating", stats.avgRating)}</strong></div>
         <div><span class="muted">標高中央値</span><strong>${formatMetric("altitudeMedian", stats.altitudeMedian)}</strong></div>
-        <div><span class="muted">S比率</span><strong>${formatMetric("sRatio", stats.sRatio)}</strong></div>
       </div>
-      <p class="muted" style="margin:10px 0 6px;">登録名: ${stats.rawCountries.join(", ") || "-"}</p>
       <button id="open-search-country" class="ghost" style="width:100%;">Searchでこの国を開く</button>
-      <h4 style="margin-bottom:6px;">豆一覧（上位10）</h4>
       <ol class="country-beans">${beans}</ol>
     `;
     drawer.querySelector("#open-search-country")?.addEventListener("click", () => openSearchWithCountry?.(openCountry));
   }
 
-  function renderMappingManagement(unmapped) {
+  function renderMappingManagement(unmapped, featureIso2Set, mappedStats) {
     const table = container.querySelector("#mapping-table");
     const filter = normalizeLoose(ui.manageFilter);
     const countsByRaw = new Map(unmapped.map((entry) => [entry.name, entry.count]));
-    const rows = Object.entries(state.mapping)
-      .map(([country, mapped]) => {
-        const iso2 = countryNormalization.resolveToIso2(mapped);
+
+    const rows = Object.entries(state.mappingModel.aliasLayer)
+      .map(([country, token]) => {
+        const iso2 = state.mappingModel.countryLayer[token] || null;
         return {
           country,
-          mapped: iso2 || String(mapped || "").trim(),
+          token,
+          displayName: state.mappingModel.displayLayer[token] || "",
+          iso2: iso2 || "",
+          featureExists: iso2 ? featureIso2Set.has(iso2) : false,
+          joinable: iso2 ? mappedStats.has(iso2) : false,
+          updatedAt: state.mappingModel.aliasMeta[country]?.updatedAt || "-",
           count: countsByRaw.get(country) || state.records.filter((r) => normalizeCountryKey(r.country) === country).length
         };
       })
-      .filter((row) => !filter || normalizeLoose(`${row.country} ${row.mapped}`).includes(filter))
+      .filter((row) => !filter || normalizeLoose(`${row.country} ${row.iso2} ${row.token} ${row.displayName}`).includes(filter))
       .sort((a, b) => b.count - a.count || a.country.localeCompare(b.country, "ja"));
 
     table.innerHTML = rows.length
       ? rows.map((row) => `<tr>
         <td>${row.country}</td>
-        <td><input data-edit-country="${encodeURIComponent(row.country)}" type="text" value="${row.mapped}" /></td>
-        <td>${row.count}</td>
+        <td><input data-edit-display="${encodeURIComponent(row.country)}" type="text" value="${row.displayName}" /></td>
+        <td>${row.token}</td>
+        <td><input data-edit-iso2="${encodeURIComponent(row.country)}" type="text" value="${row.iso2}" /></td>
+        <td>${row.featureExists ? "yes" : "no"}</td>
+        <td>${row.joinable ? "yes" : "no"}</td>
+        <td>${row.updatedAt}</td>
         <td><button class="ghost" data-save-country="${encodeURIComponent(row.country)}">更新</button></td>
         <td><button class="ghost" data-delete-country="${encodeURIComponent(row.country)}">削除</button></td>
       </tr>`).join("")
-      : "<tr><td colspan='5' class='muted'>該当なし</td></tr>";
+      : "<tr><td colspan='9' class='muted'>該当なし</td></tr>";
 
     table.querySelectorAll("[data-save-country]").forEach((button) => {
       button.addEventListener("click", () => {
         const key = decodeURIComponent(button.dataset.saveCountry);
-        const input = table.querySelector(`[data-edit-country="${encodeURIComponent(key)}"]`);
-        const value = normalizeCountryKey(input?.value);
-        const iso2 = countryNormalization.resolveToIso2(value);
+        const isoInput = table.querySelector(`[data-edit-iso2="${encodeURIComponent(key)}"]`);
+        const labelInput = table.querySelector(`[data-edit-display="${encodeURIComponent(key)}"]`);
+        const iso2 = countryNormalization.resolveToIso2(normalizeCountryKey(isoInput?.value));
         if (!iso2) return;
-        state.mapping[key] = iso2;
-        saveMapping(state.mapping);
+        upsertMapping(state.mappingModel, {
+          rawCountry: key,
+          token: tokenFromIso2(iso2),
+          iso2,
+          displayName: normalizeCountryKey(labelInput?.value) || countryNormalization.getRecord(iso2)?.enName || iso2
+        });
+        saveMapping(state.mappingModel);
+        ui.focusIso2 = iso2;
         renderMap();
       });
     });
@@ -456,8 +475,8 @@ export function initMap(container, context) {
     table.querySelectorAll("[data-delete-country]").forEach((button) => {
       button.addEventListener("click", () => {
         const key = decodeURIComponent(button.dataset.deleteCountry);
-        delete state.mapping[key];
-        saveMapping(state.mapping);
+        deleteAlias(state.mappingModel, key);
+        saveMapping(state.mappingModel);
         renderMap();
       });
     });
@@ -470,9 +489,10 @@ export function initMap(container, context) {
     mapRoot.innerHTML = "";
     const features = await loadWorldData();
     const featureIso2 = new Map(features.map((feature) => [feature, countryNormalization.resolveFeatureToIso2(feature)]));
-    const stats = buildCountryAggregation();
+    const featureIso2Set = loadFeatureIso2Set(features);
+    const stats = buildCountryAggregation(featureIso2Set);
     const mappedStats = stats.aggregated;
-    emitIso2Diagnostics(features, featureIso2, mappedStats);
+
     const values = [...mappedStats.values()].map((entry) => metricValue(entry, ui.metric)).filter((v) => Number.isFinite(v));
     const sorted = [...values].sort((a, b) => a - b);
     const p95 = sorted.length ? sorted[Math.floor((sorted.length - 1) * 0.95)] : 1;
@@ -492,13 +512,21 @@ export function initMap(container, context) {
       .attr("d", path)
       .attr("fill", (feature) => {
         const iso2 = featureIso2.get(feature);
-        const row = iso2 ? mappedStats.get(iso2) : null;
+        if (!iso2) return "#e6e6e6";
+        const row = mappedStats.get(iso2) || null;
+        if (!row) return "#d9d9d9";
         const value = metricValue(row, ui.metric);
         if (!Number.isFinite(value)) return "#f5f3ef";
         return scale(Math.sqrt(Math.min(value, p95)));
       })
-      .attr("stroke", "#ffffff")
-      .attr("stroke-width", 0.5)
+      .attr("stroke", (feature) => {
+        const iso2 = featureIso2.get(feature);
+        return ui.focusIso2 && iso2 === ui.focusIso2 ? "#c0392b" : "#ffffff";
+      })
+      .attr("stroke-width", (feature) => {
+        const iso2 = featureIso2.get(feature);
+        return ui.focusIso2 && iso2 === ui.focusIso2 ? 2 : 0.5;
+      })
       .style("cursor", "pointer")
       .on("click", (_event, feature) => {
         const iso2 = featureIso2.get(feature);
@@ -510,7 +538,8 @@ export function initMap(container, context) {
         const iso2 = featureIso2.get(feature);
         const row = iso2 ? mappedStats.get(iso2) : null;
         const label = countryNormalization.getRecord(iso2)?.enName || feature.properties?.name || iso2 || "Unknown";
-        return `${label}: ${formatMetric(ui.metric, metricValue(row, ui.metric))}`;
+        const joined = iso2 && row ? "joined" : "unjoined";
+        return `${label}: ${formatMetric(ui.metric, metricValue(row, ui.metric))} (${joined})`;
       });
 
     const zoom = d3.zoom().scaleExtent([1, 8]).on("zoom", (event) => layer.attr("transform", event.transform));
@@ -524,17 +553,25 @@ export function initMap(container, context) {
       svg.transition().duration(350).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
     }
 
-    const coffeeBelt = { type: "Feature", geometry: { type: "Polygon", coordinates: [[[-180, -35], [180, -35], [180, 35], [-180, 35], [-180, -35]]] } };
-    fitFeature(coffeeBelt, 0.95);
-    mapApi = { fitWorld: () => fitFeature({ type: "FeatureCollection", features }), mappedStats, unmapped: stats.unmapped };
+    if (ui.focusIso2) {
+      const focusFeature = features.find((feature) => featureIso2.get(feature) === ui.focusIso2);
+      if (focusFeature) fitFeature(focusFeature, 0.6);
+      ui.focusIso2 = "";
+    } else {
+      const coffeeBelt = { type: "Feature", geometry: { type: "Polygon", coordinates: [[[-180, -35], [180, -35], [180, 35], [-180, 35], [-180, -35]]] } };
+      fitFeature(coffeeBelt, 0.95);
+    }
+
+    mapApi = { fitWorld: () => fitFeature({ type: "FeatureCollection", features }), mappedStats, unmapped: stats.unmapped, featureIso2Set };
 
     renderUnmapped(stats.unmapped);
+    renderUnjoinable(stats.unjoinable);
+    renderSaveStatus(ui.latestSaveStatus);
     renderDrawer(mappedStats.get(ui.selectedCountryIso2));
-    renderMappingManagement(stats.unmapped);
+    renderMappingManagement(stats.unmapped, featureIso2Set, mappedStats);
   }
 
-  state.mapping = loadMapping();
-  normalizeMappingTable();
+  state.mappingModel = loadMapping();
 
   container.querySelector("#metric-select").addEventListener("change", (event) => {
     ui.metric = event.target.value;
@@ -543,18 +580,30 @@ export function initMap(container, context) {
 
   container.querySelector("#fit-world").addEventListener("click", () => mapApi?.fitWorld?.());
 
-  container.querySelector("#save-mapping").addEventListener("click", () => {
+  container.querySelector("#save-mapping").addEventListener("click", async () => {
     const country = container.querySelector("#unmapped-select").value;
     const value = normalizeCountryKey(container.querySelector("#mapping-input").value);
     const iso2 = countryNormalization.resolveToIso2(value);
     if (!country || !iso2) return;
-    state.mapping[country] = iso2;
-    saveMapping(state.mapping);
+
+    upsertMapping(state.mappingModel, {
+      rawCountry: country,
+      token: tokenFromIso2(iso2),
+      iso2,
+      displayName: countryNormalization.getRecord(iso2)?.enName || iso2
+    });
+    saveMapping(state.mappingModel);
+    ui.focusIso2 = iso2;
+    await renderMap();
+    const report = validateMappingSave(country, iso2, mapApi?.featureIso2Set || new Set(), mapApi?.mappedStats || new Map());
+    ui.latestSaveStatus = report;
+    renderSaveStatus(report);
+    emitMappingTrace(country, report);
+
     container.querySelector("#mapping-input").value = "";
     ui.suggestionList = [];
     renderSuggestions();
     renderInputHint("");
-    renderMap();
   });
 
   container.querySelector("#mapping-input").addEventListener("input", (event) => {
@@ -580,7 +629,20 @@ export function initMap(container, context) {
   container.querySelector("#close-mapping").addEventListener("click", () => dialog.close());
   container.querySelector("#mapping-search").addEventListener("input", (event) => {
     ui.manageFilter = event.target.value;
-    renderMappingManagement(mapApi?.unmapped || []);
+    renderMappingManagement(mapApi?.unmapped || [], mapApi?.featureIso2Set || new Set(), mapApi?.mappedStats || new Map());
+  });
+
+  container.querySelector("#diagnose-selected").addEventListener("click", () => {
+    const country = container.querySelector("#unmapped-select").value;
+    if (!country) return;
+    const resolved = resolveAliasToIso2(country, state.mappingModel);
+    emitMappingTrace(country, {
+      rawCountry: country,
+      aliasToken: resolved.aliasToken,
+      iso2: resolved.iso2,
+      hasFeature: resolved.iso2 ? (mapApi?.featureIso2Set || new Set()).has(resolved.iso2) : false,
+      hasJoin: resolved.iso2 ? (mapApi?.mappedStats || new Map()).has(resolved.iso2) : false
+    });
   });
 
   return { render: renderMap };
