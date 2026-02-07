@@ -357,8 +357,74 @@
       gap: 6px;
       align-items: stretch;
     }
-    .heatmap-col-header,
-    .heatmap-row-label {
+
+    .heatmap-table-wrap {
+      overflow-x: auto;
+    }
+    .heatmap-table {
+      width: max-content;
+      min-width: 100%;
+      table-layout: fixed;
+      border-collapse: separate;
+      border-spacing: 6px;
+    }
+    .heatmap-table th,
+    .heatmap-table td {
+      border-bottom: none;
+      padding: 0;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .heatmap-table thead th {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 600;
+      padding: 4px;
+    }
+    .heatmap-table .heatmap-row-label {
+      min-width: 180px;
+      width: 180px;
+      text-align: left;
+      padding: 4px 8px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 600;
+      white-space: nowrap;
+      background: transparent;
+      border: none;
+    }
+    .heatmap-table .heatmap-col-header {
+      width: 110px;
+      min-width: 110px;
+      max-width: 110px;
+      white-space: nowrap;
+    }
+    .heatmap-table td.heatmap-cell {
+      width: 110px;
+      min-width: 110px;
+      max-width: 110px;
+      height: 70px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: color-mix(in srgb, #c8783b calc(var(--heat, 0.2) * 100%), #fff);
+      padding: 8px;
+    }
+    .heatmap-cell-button {
+      width: 100%;
+      height: 100%;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 4px;
+      padding: 0;
+    }
+    .analysis-heatmap .heatmap-col-header,
+    .analysis-heatmap .heatmap-row-label {
       font-size: 0.85rem;
       color: var(--muted);
       display: flex;
@@ -367,12 +433,12 @@
       text-align: center;
       padding: 4px;
     }
-    .heatmap-row-label {
+    .analysis-heatmap .heatmap-row-label {
       justify-content: flex-start;
       font-weight: 600;
       color: var(--text);
     }
-    .heatmap-cell {
+    .analysis-heatmap .heatmap-cell {
       border: 1px solid var(--line);
       border-radius: 10px;
       padding: 8px;
@@ -385,10 +451,10 @@
       gap: 4px;
       color: var(--text);
     }
-    .heatmap-cell.clickable {
+    .analysis-heatmap .heatmap-cell.clickable {
       cursor: pointer;
     }
-    .heatmap-cell.small {
+    .analysis-heatmap .heatmap-cell.small {
       opacity: 0.7;
     }
     .metric-main {
