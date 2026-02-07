@@ -81,13 +81,7 @@ export function initMap(container, context) {
           </select>
         </label>
         <button id="fit-world" class="ghost">世界全体</button>
-        <button id="open-mapping" class="ghost">マッピング管理</button>
-        <label>診断対象国
-          <select id="diagnose-country-select"></select>
-        </label>
-        <button id="diagnose-selected" class="ghost">診断ログ出力</button>
       </div>
-      <div id="diagnose-status" class="muted">使い方: ①「診断対象国」を選ぶ ②「診断ログ出力」を押す。</div>
       <div class="map-layout">
         <div>
           <div id="map"></div>
@@ -95,42 +89,55 @@ export function initMap(container, context) {
         </div>
         <aside id="country-drawer" class="country-drawer"><p class="muted">地図上の国をクリックすると詳細を表示します。</p></aside>
       </div>
+      <section class="ops-panel" aria-label="運用パネル">
+        <h3>運用パネル</h3>
+        <p class="muted" style="margin-top:0;">診断・マッピング運用はここに集約しています。</p>
+
+        <details class="ops-section">
+          <summary>未マッピングの国 <span id="unmapped-count-badge" class="ops-badge">0</span></summary>
+          <div id="unmapped-list"></div>
+        </details>
+
+        <details class="ops-section">
+          <summary>診断ログ <span id="diagnose-count-badge" class="ops-badge">0</span></summary>
+          <label>診断対象国
+            <select id="diagnose-country-select"></select>
+          </label>
+          <div class="ops-actions">
+            <button id="diagnose-selected" class="ghost">診断ログ出力</button>
+          </div>
+          <div id="diagnose-status" class="muted">対象国を選択して「診断ログ出力」を押してください。</div>
+        </details>
+
+        <details class="ops-section">
+          <summary>mapped-but-unjoinable <span id="unjoinable-count-badge" class="ops-badge">0</span></summary>
+          <p class="muted">マッピング済みだが地図に合流できない国を表示します。</p>
+          <div id="unjoinable-list"></div>
+        </details>
+
+        <details class="ops-section">
+          <summary>マッピング管理 <span id="mapping-count-badge" class="ops-badge">0</span></summary>
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>対象国</label><select id="unmapped-select"></select></div>
+            <div>
+              <label>マップキー（ISO2推奨）</label>
+              <input id="mapping-input" type="text" placeholder="例: BR / Brazil" />
+              <div id="mapping-hint" class="muted" style="font-size:12px;margin-top:4px;"></div>
+              <div id="mapping-suggest" class="suggestions"></div>
+            </div>
+          </div>
+          <button id="save-mapping" style="margin-top:12px;">マッピング保存</button>
+          <input id="mapping-search" style="margin-top:12px;" type="text" placeholder="国名/ISO2/内部キーで検索" />
+          <div class="table-wrap" style="margin-top:10px;max-height:50vh;overflow:auto;">
+            <table>
+              <thead><tr><th>country表記</th><th>表示名</th><th>内部キー</th><th>resolved iso2</th><th>feature存在</th><th>集計合流</th><th>最終更新</th><th>編集</th><th>削除</th></tr></thead>
+              <tbody id="mapping-table"></tbody>
+            </table>
+          </div>
+          <section id="mapping-guide" class="mapping-guide"></section>
+        </details>
+      </section>
     </div>
-    <div class="card">
-      <h3>未マッピングの国</h3>
-      <div id="unmapped-list"></div>
-      <div class="grid-2" style="margin-top:12px;">
-        <div><label>対象国</label><select id="unmapped-select"></select></div>
-        <div>
-          <label>マップキー（ISO2推奨）</label>
-          <input id="mapping-input" type="text" placeholder="例: BR / Brazil" />
-          <div id="mapping-hint" class="muted" style="font-size:12px;margin-top:4px;"></div>
-          <div id="mapping-suggest" class="suggestions"></div>
-        </div>
-      </div>
-      <button id="save-mapping" style="margin-top:12px;">マッピング保存</button>
-    </div>
-    <div class="card">
-      <h3>mapped-but-unjoinable</h3>
-      <p class="muted">マッピング済みだが地図に合流できない国を表示します。</p>
-      <div id="unjoinable-list"></div>
-    </div>
-    <dialog id="mapping-dialog">
-      <div class="dialog-body">
-        <h3 style="margin-top:0;">マッピング管理</h3>
-        <input id="mapping-search" type="text" placeholder="国名/ISO2/内部キーで検索" />
-        <div class="table-wrap" style="margin-top:10px;max-height:50vh;overflow:auto;">
-          <table>
-            <thead><tr><th>country表記</th><th>表示名</th><th>内部キー</th><th>resolved iso2</th><th>feature存在</th><th>集計合流</th><th>最終更新</th><th>編集</th><th>削除</th></tr></thead>
-            <tbody id="mapping-table"></tbody>
-          </table>
-        </div>
-        <section id="mapping-guide" class="mapping-guide"></section>
-      </div>
-      <div class="dialog-actions">
-        <button id="close-mapping" class="ghost">閉じる</button>
-      </div>
-    </dialog>
   `;
 
   let mapApi = null;
@@ -312,7 +319,7 @@ export function initMap(container, context) {
     if (!host) return;
     if (!report) {
       host.classList.add("is-warning");
-      host.textContent = "対象国を選択してください（上部の「診断対象国」から選べます）";
+      host.textContent = "対象国を選択してください";
       return;
     }
     const hasFeature = pickReportCheck(report, "hasFeature", "featureExists");
@@ -325,6 +332,17 @@ export function initMap(container, context) {
       `feature: ${hasFeature ? "FOUND" : "NOT FOUND"} (key: ${featureDetail})`,
       `join: ${hasJoin ? "JOINED" : "NOT JOINED"}`
     ].join("\n");
+  }
+
+  function renderOperationBadges({ unmapped = [], unjoinable = [], diagnoseSelected = "", mappingRows = 0 } = {}) {
+    const unmappedBadge = container.querySelector("#unmapped-count-badge");
+    const diagnoseBadge = container.querySelector("#diagnose-count-badge");
+    const unjoinableBadge = container.querySelector("#unjoinable-count-badge");
+    const mappingBadge = container.querySelector("#mapping-count-badge");
+    if (unmappedBadge) unmappedBadge.textContent = String(unmapped.length);
+    if (diagnoseBadge) diagnoseBadge.textContent = diagnoseSelected ? "1" : "0";
+    if (unjoinableBadge) unjoinableBadge.textContent = String(unjoinable.length);
+    if (mappingBadge) mappingBadge.textContent = String(mappingRows);
   }
 
   function renderNoGuide(rows) {
@@ -446,7 +464,7 @@ export function initMap(container, context) {
       host.textContent = "該当なし";
       return;
     }
-    host.innerHTML = `<ul>${unjoinable.map((entry) => `<li>${entry.rawCountry} → ${entry.iso2} (${entry.reason}, ${entry.count}件)</li>`).join("")}</ul>`;
+    host.innerHTML = `<ul>${unjoinable.map((entry) => `<li><span class="status-chip no">合流不可</span> ${entry.rawCountry} → ${entry.iso2} (${entry.reason}, ${entry.count}件)</li>`).join("")}</ul>`;
   }
 
   function getSuggestions(text, selectedCountry) {
@@ -673,6 +691,12 @@ export function initMap(container, context) {
     renderSaveStatus(ui.latestSaveStatus);
     renderDrawer(mappedStats.get(ui.selectedCountryIso2));
     renderMappingManagement(stats.unmapped, featureIso2Set, mappedStats);
+    renderOperationBadges({
+      unmapped: stats.unmapped,
+      unjoinable: stats.unjoinable,
+      diagnoseSelected: ui.selectedDiagnoseCountry,
+      mappingRows: state.mappingModel?.entries?.length || 0
+    });
   }
 
   state.mappingModel = loadMapping();
@@ -732,14 +756,12 @@ export function initMap(container, context) {
 
   container.querySelector("#diagnose-country-select").addEventListener("change", (event) => {
     ui.selectedDiagnoseCountry = event.target.value;
+    renderOperationBadges({
+      diagnoseSelected: ui.selectedDiagnoseCountry,
+      mappingRows: state.mappingModel?.entries?.length || 0
+    });
   });
 
-  const dialog = container.querySelector("#mapping-dialog");
-  container.querySelector("#open-mapping").addEventListener("click", () => {
-    dialog.showModal();
-    renderMap();
-  });
-  container.querySelector("#close-mapping").addEventListener("click", () => dialog.close());
   container.querySelector("#mapping-search").addEventListener("input", (event) => {
     ui.manageFilter = event.target.value;
     renderMappingManagement(mapApi?.unmapped || [], mapApi?.featureIso2Set || new Set(), mapApi?.mappedStats || new Map());
