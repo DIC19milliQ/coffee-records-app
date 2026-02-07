@@ -278,6 +278,60 @@
       background: #fdeced;
       border-color: #ec9ea5;
     }
+    .ops-panel {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fcfaf7;
+    }
+    .ops-panel h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+      color: var(--accent);
+    }
+    .ops-section {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      margin-top: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .ops-section > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .ops-section > summary::-webkit-details-marker {
+      display: none;
+    }
+    .ops-section[open] > summary {
+      border-bottom: 1px solid var(--line);
+      background: #f8f1e8;
+    }
+    .ops-section > :not(summary) {
+      padding: 10px 12px;
+    }
+    .ops-badge {
+      display: inline-flex;
+      min-width: 24px;
+      justify-content: center;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      border: 1px solid var(--line);
+      font-size: 0.8rem;
+    }
+    .ops-actions {
+      display: flex;
+      justify-content: flex-start;
+      margin-bottom: 8px;
+    }
     .mapping-guide {
       margin-top: 12px;
       border: 1px solid var(--line);
