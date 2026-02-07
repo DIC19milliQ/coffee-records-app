@@ -2,7 +2,6 @@ import { initSearch } from "./modes/search.js";
 import { initRanking } from "./modes/ranking.js";
 import { initAnalysis } from "./modes/analysis.js";
 import { initMap } from "./modes/map.js";
-import { initAi } from "./modes/ai.js";
 import { buildCountryNormalization } from "./shared/countryNormalization.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
@@ -12,7 +11,6 @@ const TTL_MS = 60 * 60 * 1000;
 const LS_KEY = "coffeeRecordsCache_v2";
 const MAP_KEY = "coffeeCountryMapping_v1";
 const SEARCH_PREFS_KEY = "coffeeSearchPrefs_v1";
-const ENABLE_AI = false;
 
 const DEFAULT_MAPPING = {
   "ブラジル": "BR", "コロンビア": "CO", "エチオピア": "ET", "グアテマラ": "GT", "ホンジュラス": "HN", "インドネシア": "ID", "ケニア": "KE", "ペルー": "PE", "ルワンダ": "RW", "タンザニア": "TZ", "ベトナム": "VN", "イエメン": "YE", "コスタリカ": "CR", "パナマ": "PA", "ボリビア": "BO", "ブルンジ": "BI", "エクアドル": "EC", "エルサルバドル": "SV", "インド": "IN", "ジャマイカ": "JM", "ニカラグア": "NI", "パプアニューギニア": "PG", "ウガンダ": "UG"
@@ -101,8 +99,7 @@ const modes = {
   search: initSearch(document.getElementById("mode-search"), { state, saveSearchPrefs }),
   ranking: initRanking(document.getElementById("mode-ranking"), { state }),
   analysis: initAnalysis(document.getElementById("mode-analysis"), { state }),
-  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry }),
-  ai: initAi(document.getElementById("mode-ai"), { state })
+  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry })
 };
 
 function renderAll() {
@@ -110,17 +107,8 @@ function renderAll() {
   modes.ranking.render();
   modes.analysis.render();
   modes.map.render();
-  modes.ai?.render?.();
 }
 
-function setupOptionalTabs() {
-  const aiButton = document.querySelector("nav button[data-tab='ai']");
-  const aiEnabled = ENABLE_AI || new URLSearchParams(window.location.search).get("ai") === "1";
-  if (!aiEnabled) {
-    aiButton?.remove();
-    document.getElementById("tab-ai")?.remove();
-  }
-}
 
 function activateTab(tabName) {
   document.querySelectorAll("nav button").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tabName));
@@ -176,6 +164,5 @@ reloadBtn.addEventListener("click", () => {
 });
 
 loadSearchPrefs();
-setupOptionalTabs();
 setupTabs();
 loadData();

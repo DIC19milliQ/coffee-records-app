@@ -1,3 +1,5 @@
+import { createNoteSheet } from "../shared/noteSheet.js";
+import { SEARCH_COLUMNS } from "../shared/labels.js";
 import { normalizeText, validTaste, display } from "../shared/utils.js";
 
 const ROAST_ORDER = ["浅煎り", "中浅煎り", "中煎り", "中深煎り", "深煎り"];
@@ -6,6 +8,9 @@ const TARGET_RATINGS = ["S", "A", "B", "C"];
 const AXIS2_BLOCKED_IN_TWO_AXIS = new Set(["country", "process"]);
 const SAFE_AXIS2_DEFAULT_ORDER = ["roast", "bitter", "acid", "altitude_bin"];
 const TASTE_ORDER = ["1", "2", "3", "4", "5"];
+
+const DETAIL_KEYS = ["bean", "rating", "roast", "process"];
+const LABEL_BY_KEY = Object.fromEntries(SEARCH_COLUMNS.map((column) => [column.key, column.label]));
 
 const AXES = [
   { key: "country", label: "国", getValue: (record) => toCategory(record.country) },
@@ -169,7 +174,7 @@ export function initAnalysis(container, context) {
 
   container.innerHTML = `
     <div class="card">
-      <h2>分析モード（意思決定用）</h2>
+      <h2>傾向分析</h2>
       <p class="muted">サンプル基準：n&lt;3は表示なし、3–4は参考表示</p>
       <div class="analysis-controls">
         <div>
@@ -195,8 +200,10 @@ export function initAnalysis(container, context) {
     <div class="card analysis-detail-panel">
       <h3>詳細パネル</h3>
       <div id="analysis-detail-summary" class="muted">行/セルを選択すると詳細を表示します。</div>
-      <div class="table-wrap detail-scroll"><table><thead><tr><th>bean</th><th>rating</th><th>roast</th><th>process</th><th>note</th></tr></thead><tbody id="analysis-detail"></tbody></table></div>
+      <div class="table-wrap detail-scroll"><table><thead><tr>${DETAIL_KEYS.map((key) => `<th>${LABEL_BY_KEY[key] || key}</th>`).join("")}</tr></thead><tbody id="analysis-detail"></tbody></table></div>
     </div>`;
+
+  const noteSheet = createNoteSheet(container, { prefix: "analysis", title: "ノート" });
 
   function axisByKey(key) {
     return AXES.find((axis) => axis.key === key) || AXES[0];
@@ -291,13 +298,19 @@ export function initAnalysis(container, context) {
     const summaryEl = container.querySelector("#analysis-detail-summary");
     if (!ui.detailRecords.length || !ui.detailSummary) {
       summaryEl.textContent = "行/セルを選択すると詳細を表示します。";
-      tbody.innerHTML = "<tr><td colspan='5' class='muted'>未選択</td></tr>";
+      tbody.innerHTML = "<tr><td colspan='4' class='muted'>未選択</td></tr>";
       return;
     }
 
     summaryEl.innerHTML = `<strong>${display(ui.detailSummary.key)}</strong> | S:${ui.detailSummary.counts.S} / A:${ui.detailSummary.counts.A} / B:${ui.detailSummary.counts.B} / C:${ui.detailSummary.counts.C} | 当たり率 ${formatRate(ui.detailSummary.hitRate)} | 平均差 ${(ui.detailSummary.deltaPt * 100).toFixed(1)}pt`;
 
-    tbody.innerHTML = ui.detailRecords.map((record) => `<tr><td>${display(record.bean)}</td><td>${display(record.rating)}</td><td>${display(record.roast)}</td><td>${display(record.process)}</td><td>${display(record.note)}</td></tr>`).join("");
+    tbody.innerHTML = ui.detailRecords.map((record) => `<tr class="expandable" data-analysis-row-note="${encodeURIComponent(String(record.note || ""))}">${DETAIL_KEYS.map((key) => `<td>${display(record[key])}</td>`).join("")}</tr>`).join("");
+    tbody.querySelectorAll("[data-analysis-row-note]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const note = decodeURIComponent(row.dataset.analysisRowNote || "");
+        noteSheet.open(note);
+      });
+    });
   }
 
   function renderOneAxis(records) {

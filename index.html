@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Coffee Records</title>
+  <title>珈琲豆記録帖</title>
   <style>
     :root {
       color-scheme: light;
@@ -590,7 +590,7 @@
 
 <body>
   <header>
-    <h1>コーヒー豆記録</h1>
+    <h1>珈琲豆記録帖</h1>
     <div class="header-row">
       <div id="status" class="muted">読み込み中...</div>
       <div class="header-actions">
@@ -600,18 +600,16 @@
     </div>
   </header>
   <nav>
-    <button class="active" data-tab="search">Search</button>
-    <button data-tab="ranking">Ranking</button>
-    <button data-tab="analysis">Analysis</button>
-    <button data-tab="map">Map</button>
-    <button data-tab="ai">AI</button>
+    <button class="active" data-tab="search">図鑑</button>
+    <button data-tab="ranking">味検索</button>
+    <button data-tab="analysis">傾向</button>
+    <button data-tab="map">地図</button>
   </nav>
   <main>
     <section id="tab-search" class="tab-panel active"><div id="mode-search"></div></section>
     <section id="tab-ranking" class="tab-panel"><div id="mode-ranking"></div></section>
     <section id="tab-analysis" class="tab-panel"><div id="mode-analysis"></div></section>
     <section id="tab-map" class="tab-panel"><div id="mode-map"></div></section>
-    <section id="tab-ai" class="tab-panel"><div id="mode-ai"></div></section>
   </main>
 
   <script type="module" src="./app.js"></script>

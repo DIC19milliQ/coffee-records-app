@@ -55,7 +55,7 @@ export function initMap(container, context) {
 
   container.innerHTML = `
     <div class="card">
-      <h2>コンプリート地図</h2>
+      <h2>産地マップ（記録・傾向）</h2>
       <p class="muted">コーヒーベルトを初期表示。指標切替で国ごとの傾向を確認できます。</p>
       <div class="map-toolbar">
         <label>色分け指標

@@ -1,10 +1,12 @@
+import { createNoteSheet } from "../shared/noteSheet.js";
 import { display, validTaste } from "../shared/utils.js";
 
 const RATING_ORDER = { S: 4, A: 3, B: 2, C: 1 };
 
 export function initRanking(container, context) {
   const { state } = context;
-  container.innerHTML = `<div class="card"><h2>ランキング：気分入力</h2><div class="mode-buttons" id="ranking-modes"><button data-mode="bitter" class="active">苦味のみ</button><button data-mode="both">苦味 + 酸味</button><button data-mode="diff">差分 (苦味 - 酸味)</button></div><div class="grid-2" style="margin-top:12px;"><div><label>苦味 (1-5)</label><input id="input-bitter" type="number" min="1" max="5" step="1" value="3" /></div><div><label>酸味 (1-5)</label><input id="input-acid" type="number" min="1" max="5" step="1" value="3" /></div><div><label>差分 (苦味 - 酸味)</label><input id="input-diff" type="number" min="-4" max="4" step="1" value="0" /></div></div><p class="muted" id="ranking-note"></p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>国</th><th>豆</th><th>焙煎</th><th>苦味</th><th>酸味</th><th>評価</th></tr></thead><tbody id="ranking-results"></tbody></table></div></div><div id="ranking-sheet-backdrop" class="sheet-backdrop"></div><section id="ranking-sheet" class="sheet" aria-label="ランキング詳細"><div class="sheet-header"><strong>ノート</strong><button id="ranking-sheet-close" class="ghost">閉じる</button></div><div class="sheet-content"><p id="ranking-sheet-note" class="sheet-note">ノート未記録</p></div></section>`;
+  container.innerHTML = `<div class="card"><h2>苦味/酸味 検索</h2><div class="mode-buttons" id="ranking-modes"><button data-mode="bitter" class="active">苦味のみ</button><button data-mode="both">苦味 + 酸味</button><button data-mode="diff">差分 (苦味 - 酸味)</button></div><div class="grid-2" style="margin-top:12px;"><div><label>苦味 (1-5)</label><input id="input-bitter" type="number" min="1" max="5" step="1" value="3" /></div><div><label>酸味 (1-5)</label><input id="input-acid" type="number" min="1" max="5" step="1" value="3" /></div><div><label>差分 (苦味 - 酸味)</label><input id="input-diff" type="number" min="-4" max="4" step="1" value="0" /></div></div><p class="muted" id="ranking-note"></p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>国</th><th>豆</th><th>焙煎</th><th>苦味</th><th>酸味</th><th>評価</th></tr></thead><tbody id="ranking-results"></tbody></table></div></div>`;
+  const noteSheet = createNoteSheet(container, { prefix: "ranking", title: "ノート" });
 
   function computeScore(record) {
     const bitter = validTaste(record.bitter);
@@ -27,15 +29,8 @@ export function initRanking(container, context) {
     return `基準：差分=${d}（|苦味-酸味| が近い順）`;
   }
 
-  function closeSheet() {
-    container.querySelector("#ranking-sheet-backdrop").classList.remove("open");
-    container.querySelector("#ranking-sheet").classList.remove("open");
-  }
-
   function openNote(record) {
-    container.querySelector("#ranking-sheet-note").textContent = String(record.note || "").trim() || "ノート未記録";
-    container.querySelector("#ranking-sheet-backdrop").classList.add("open");
-    container.querySelector("#ranking-sheet").classList.add("open");
+    noteSheet.open(record.note);
   }
 
   function renderRanking() {
@@ -72,8 +67,5 @@ export function initRanking(container, context) {
     renderRanking();
   });
   ["input-bitter", "input-acid", "input-diff"].forEach((id) => container.querySelector(`#${id}`).addEventListener("input", renderRanking));
-  container.querySelector("#ranking-sheet-close").addEventListener("click", closeSheet);
-  container.querySelector("#ranking-sheet-backdrop").addEventListener("click", closeSheet);
-
   return { render: renderRanking };
 }
