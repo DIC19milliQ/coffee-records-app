@@ -352,6 +352,107 @@
       padding: 12px 20px 20px;
       gap: 8px;
     }
+    .analysis-heatmap {
+      display: grid;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .heatmap-col-header,
+    .heatmap-row-label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 4px;
+    }
+    .heatmap-row-label {
+      justify-content: flex-start;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .heatmap-cell {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      min-height: 70px;
+      background: color-mix(in srgb, #c8783b calc(var(--heat, 0.2) * 100%), #fff);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 4px;
+      color: var(--text);
+    }
+    .heatmap-cell.clickable {
+      cursor: pointer;
+    }
+    .heatmap-cell.small {
+      opacity: 0.7;
+    }
+    .metric-main {
+      font-size: 1rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .metric-sub {
+      font-size: 0.78rem;
+      color: var(--muted);
+      align-self: flex-end;
+    }
+    .detail-scroll {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .analysis-detail-panel {
+      min-height: 260px;
+    }
+    .mapping-main {
+      margin-top: 10px;
+    }
+    .mapping-frame {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      max-height: min(420px, 45vh);
+      overflow: auto;
+      background: #fff;
+    }
+    .bubble-legend {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .bubble-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .bubble-size {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f4ece2;
+      display: inline-block;
+    }
+    .rating-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 6px 0 10px;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
