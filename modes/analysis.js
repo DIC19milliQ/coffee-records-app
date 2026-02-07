@@ -5,6 +5,7 @@ const ROAST_INDEX = new Map(ROAST_ORDER.map((value, index) => [value, index]));
 const TARGET_RATINGS = ["S", "A", "B", "C"];
 const AXIS2_BLOCKED_IN_TWO_AXIS = new Set(["country", "process"]);
 const SAFE_AXIS2_DEFAULT_ORDER = ["roast", "bitter", "acid", "altitude_bin"];
+const TASTE_ORDER = ["1", "2", "3", "4", "5"];
 
 const AXES = [
   { key: "country", label: "国", getValue: (record) => toCategory(record.country) },
@@ -107,9 +108,22 @@ function sortValues(axisKey, values) {
     });
   }
   if (axisKey === "bitter" || axisKey === "acid") {
-    return unique.sort((a, b) => Number(a) - Number(b));
+    const known = TASTE_ORDER.filter((value) => unique.includes(value));
+    const unknown = unique.filter((value) => !TASTE_ORDER.includes(value) && value !== "不明").sort((a, b) => String(a).localeCompare(String(b), "ja"));
+    if (unique.includes("不明")) return [...known, ...unknown, "不明"];
+    return [...known, ...unknown];
   }
   return unique.sort((a, b) => String(a).localeCompare(String(b), "ja"));
+}
+
+function getOrderedAxisCategories(axisKey, records, getValue, { includeTasteBase = false } = {}) {
+  const observed = [...new Set(records.map((record) => getValue(record)))];
+  if (axisKey === "bitter" || axisKey === "acid") {
+    const base = includeTasteBase ? [...TASTE_ORDER] : TASTE_ORDER.filter((value) => observed.includes(value));
+    const extra = observed.filter((value) => !TASTE_ORDER.includes(value) && value !== "不明").sort((a, b) => String(a).localeCompare(String(b), "ja"));
+    return observed.includes("不明") ? [...base, ...extra, "不明"] : [...base, ...extra];
+  }
+  return sortValues(axisKey, observed);
 }
 
 function summarize(records, targetRatings, key, overallHitRate = 0) {
@@ -321,38 +335,59 @@ export function initAnalysis(container, context) {
   function renderTwoAxis(records) {
     const axis1 = axisByKey(ui.axis1);
     const axis2 = axisByKey(ui.axis2);
-    let rowKeys = sortValues(axis1.key, records.map((record) => axis1.getValue(record)));
-    let colKeys = sortValues(axis2.key, records.map((record) => axis2.getValue(record)));
+    const rowKeys = getOrderedAxisCategories(axis1.key, records, axis1.getValue, { includeTasteBase: true });
+    const colKeys = getOrderedAxisCategories(axis2.key, records, axis2.getValue, { includeTasteBase: true });
 
-    const cells = rowKeys.flatMap((rowKey) => colKeys.map((colKey) => {
-      const list = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey);
-      return { rowKey, colKey, summary: summarize(list, ui.targetRatings, `${rowKey} × ${colKey}`, ui.overallHitRate) };
-    }));
+    const buckets = new Map();
+    rowKeys.forEach((rowKey) => {
+      buckets.set(rowKey, new Map());
+      colKeys.forEach((colKey) => {
+        buckets.get(rowKey).set(colKey, []);
+      });
+    });
 
-    const gridTemplate = `180px repeat(${Math.max(colKeys.length, 1)}, minmax(90px, 1fr))`;
-    const headCols = colKeys.map((colKey) => `<div class="heatmap-col-header">${display(colKey)}</div>`).join("");
+    records.forEach((record) => {
+      const rowKey = axis1.getValue(record);
+      const colKey = axis2.getValue(record);
+      const rowMap = buckets.get(rowKey);
+      if (!rowMap || !rowMap.has(colKey)) return;
+      rowMap.get(colKey).push(record);
+    });
+
+    const matrix = new Map();
+    rowKeys.forEach((rowKey) => {
+      matrix.set(rowKey, new Map());
+      colKeys.forEach((colKey) => {
+        const list = buckets.get(rowKey)?.get(colKey) || [];
+        matrix.get(rowKey).set(colKey, summarize(list, ui.targetRatings, `${rowKey} × ${colKey}`, ui.overallHitRate));
+      });
+    });
+
     const rowsHtml = rowKeys.map((rowKey) => {
       const rowCells = colKeys.map((colKey) => {
-        const cell = cells.find((item) => item.rowKey === rowKey && item.colKey === colKey)?.summary;
-        if (!cell) return "<div class='heatmap-cell empty'>—</div>";
+        const cell = matrix.get(rowKey)?.get(colKey);
+        if (!cell) {
+          return `<td class="heatmap-cell empty"><div class="metric-main">—</div><div class="metric-sub">n=0</div></td>`;
+        }
         const displayCell = getCellDisplay(cell);
         const opacity = cell.n < 3 ? 0.2 : Math.max(0.22, cell.hitRate);
-        return `<button type="button" class="heatmap-cell ${displayCell.className} ${displayCell.canClick ? "clickable" : ""}" style="--heat:${opacity};" ${displayCell.canClick ? `data-analysis-detail="${encodeURIComponent(JSON.stringify(cell.records))}" data-analysis-label="${encodeURIComponent(`${rowKey} × ${colKey}`)}` : "disabled"}>
-            <div class="metric-main">${displayCell.rateText}</div>
-            <div class="metric-sub">${displayCell.nText || `n=${cell.n}`}</div>
-          </button>`;
+        if (!displayCell.canClick) {
+          return `<td class="heatmap-cell ${displayCell.className}" style="--heat:${opacity};"><div class="metric-main">${displayCell.rateText}</div><div class="metric-sub">n=${cell.n}</div></td>`;
+        }
+        return `<td class="heatmap-cell ${displayCell.className}" style="--heat:${opacity};"><button type="button" class="heatmap-cell-button clickable" data-analysis-detail="${encodeURIComponent(JSON.stringify(cell.records))}" data-analysis-label="${encodeURIComponent(`${rowKey} × ${colKey}`)}"><div class="metric-main">${displayCell.rateText}</div><div class="metric-sub">${displayCell.nText || `n=${cell.n}`}</div></button></td>`;
       }).join("");
-      return `<div class="heatmap-row-label">${display(rowKey)}</div>${rowCells}`;
+      return `<tr><th class="heatmap-row-label" scope="row">${display(rowKey)}</th>${rowCells}</tr>`;
     }).join("");
 
     const emptyText = rowKeys.length && colKeys.length ? "" : "<p class='muted'>有効なカテゴリがありません。</p>";
     container.querySelector("#analysis-result").innerHTML = `
       <h3>主結果（${axis1.label} × ${axis2.label}）</h3>
       ${emptyText}
-      <div class="analysis-heatmap" style="grid-template-columns:${gridTemplate};">
-        <div></div>
-        ${headCols}
-        ${rowsHtml}
+      <div class="heatmap-table-wrap">
+        <table class="heatmap-table">
+          <thead><tr><th scope="col">${axis1.label}＼${axis2.label}</th>${colKeys.map((colKey) => `<th class="heatmap-col-header" scope="col">${display(colKey)}</th>`).join("")}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
       </div>`;
 
     attachDetailHandlers();
