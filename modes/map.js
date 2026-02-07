@@ -31,7 +31,10 @@ function formatMetric(metric, value) {
 }
 
 function normalizeLoose(text) {
-  return String(text || "").toLowerCase().replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]/g, "");
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]/g, "");
 }
 
 function scoreCandidate(queryNorm, candidateNorm) {
@@ -46,7 +49,9 @@ function scoreCandidate(queryNorm, candidateNorm) {
 export function initMap(container, context) {
   const { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry } = context;
   const isoCandidates = countryNormalization.records.map((record) => ({ code: record.iso2, name: record.enName }));
-  const ui = { metric: "uniqueBeans", selectedCountryIso2: "", manageFilter: "", suggestionList: [] };
+  const ui = { metric: "uniqueBeans", selectedCountryIso2: "", manageFilter: "", suggestionList: [], unknownCountrySignature: "" };
+  let countryAliasIndex = new Map();
+  let aliasDictionaryLoaded = false;
 
   container.innerHTML = `
     <div class="card">
@@ -116,6 +121,65 @@ export function initMap(container, context) {
     return features;
   }
 
+  async function loadCountryAliases() {
+    if (aliasDictionaryLoaded) return;
+    aliasDictionaryLoaded = true;
+    try {
+      const response = await fetch("./data/country_aliases.json");
+      if (!response.ok) throw new Error(`Failed to fetch country aliases: ${response.status}`);
+      const payload = await response.json();
+      const entries = Object.entries(payload?.aliases || {});
+      countryAliasIndex = new Map(entries.map(([alias, canonical]) => [normalizeLoose(alias), String(canonical || "").trim()]));
+    } catch (error) {
+      console.warn("Country alias dictionary could not be loaded.", error);
+      countryAliasIndex = new Map();
+    }
+  }
+
+  function resolveRawCountryToIso2(rawCountry) {
+    const raw = String(rawCountry || "").trim();
+    if (!raw) return null;
+    const directIso2 = countryNormalization.resolveToIso2(raw);
+    if (directIso2) return directIso2;
+    const aliasCanonical = countryAliasIndex.get(normalizeLoose(raw));
+    if (!aliasCanonical) return null;
+    return countryNormalization.resolveToIso2(aliasCanonical);
+  }
+
+  function seedMappingFromRecords() {
+    const rawCountries = [...new Set(state.records.map((record) => String(record.country || "").trim()).filter(Boolean))];
+    let changed = false;
+    const unresolved = [];
+
+    rawCountries.forEach((rawCountry) => {
+      const mappedValue = state.mapping[rawCountry];
+      const mappedIso2 = countryNormalization.resolveToIso2(mappedValue);
+      if (mappedIso2) {
+        if (mappedValue !== mappedIso2) {
+          state.mapping[rawCountry] = mappedIso2;
+          changed = true;
+        }
+        return;
+      }
+      const resolvedFromRaw = resolveRawCountryToIso2(rawCountry);
+      if (resolvedFromRaw) {
+        state.mapping[rawCountry] = resolvedFromRaw;
+        changed = true;
+        return;
+      }
+      unresolved.push(rawCountry);
+    });
+
+    const signature = unresolved.sort((a, b) => a.localeCompare(b, "ja")).join("|");
+    if (signature && signature !== ui.unknownCountrySignature) {
+      console.warn("[Map] country_aliases に未登録の country が見つかりました:", unresolved);
+    }
+    ui.unknownCountrySignature = signature;
+
+    if (changed) saveMapping(state.mapping);
+    return changed;
+  }
+
   function resolveSavedMappingToIso2(rawCountry) {
     const mapped = state.mapping[rawCountry];
     if (!mapped) return null;
@@ -152,8 +216,16 @@ export function initMap(container, context) {
 
     const byMapCountry = new Map();
     const unmapped = [];
+    let changed = false;
     byRawCountry.forEach((records, rawCountry) => {
-      const iso2 = resolveSavedMappingToIso2(rawCountry);
+      let iso2 = resolveSavedMappingToIso2(rawCountry);
+      if (!iso2) {
+        iso2 = resolveRawCountryToIso2(rawCountry);
+        if (iso2) {
+          state.mapping[rawCountry] = iso2;
+          changed = true;
+        }
+      }
       if (!iso2) {
         unmapped.push({ name: rawCountry, count: records.length });
         return;
@@ -197,6 +269,7 @@ export function initMap(container, context) {
       });
     });
 
+    if (changed) saveMapping(state.mapping);
     return { aggregated, unmapped: unmapped.sort((a, b) => b.count - a.count) };
   }
 
@@ -353,6 +426,8 @@ export function initMap(container, context) {
   }
 
   async function renderMap() {
+    await loadCountryAliases();
+    seedMappingFromRecords();
     const mapRoot = container.querySelector("#map");
     mapRoot.innerHTML = "";
     const features = await loadWorldData();
