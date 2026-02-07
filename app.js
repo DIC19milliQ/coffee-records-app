@@ -2,6 +2,8 @@ import { initSearch } from "./modes/search.js";
 import { initRanking } from "./modes/ranking.js";
 import { initAnalysis } from "./modes/analysis.js";
 import { initMap } from "./modes/map.js";
+import { initMapping } from "./modes/mapping.js";
+import { initAi } from "./modes/ai.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
 
@@ -10,6 +12,7 @@ const TTL_MS = 60 * 60 * 1000;
 const LS_KEY = "coffeeRecordsCache_v2";
 const MAP_KEY = "coffeeCountryMapping_v1";
 const SEARCH_PREFS_KEY = "coffeeSearchPrefs_v1";
+const ENABLE_AI = false;
 
 const DEFAULT_MAPPING = {
   "ブラジル": "Brazil", "コロンビア": "Colombia", "エチオピア": "Ethiopia", "グアテマラ": "Guatemala", "ホンジュラス": "Honduras", "インドネシア": "Indonesia", "ケニア": "Kenya", "ペルー": "Peru", "ルワンダ": "Rwanda", "タンザニア": "Tanzania", "ベトナム": "Vietnam", "イエメン": "Yemen", "コスタリカ": "Costa Rica", "パナマ": "Panama", "ボリビア": "Bolivia", "ブルンジ": "Burundi", "エクアドル": "Ecuador", "エルサルバドル": "El Salvador", "インド": "India", "ジャマイカ": "Jamaica", "ニカラグア": "Nicaragua", "パプアニューギニア": "Papua New Guinea", "ウガンダ": "Uganda"
@@ -98,7 +101,9 @@ const modes = {
   search: initSearch(document.getElementById("mode-search"), { state, saveSearchPrefs }),
   ranking: initRanking(document.getElementById("mode-ranking"), { state }),
   analysis: initAnalysis(document.getElementById("mode-analysis"), { state }),
-  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, ISO2_TO_NAME })
+  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, ISO2_TO_NAME }),
+  mapping: initMapping(document.getElementById("mode-mapping"), { state }),
+  ai: initAi(document.getElementById("mode-ai"), { state })
 };
 
 function renderAll() {
@@ -106,6 +111,17 @@ function renderAll() {
   modes.ranking.render();
   modes.analysis.render();
   modes.map.render();
+  modes.mapping.render();
+  modes.ai?.render?.();
+}
+
+function setupOptionalTabs() {
+  const aiButton = document.querySelector("nav button[data-tab='ai']");
+  const aiEnabled = ENABLE_AI || new URLSearchParams(window.location.search).get("ai") === "1";
+  if (!aiEnabled) {
+    aiButton?.remove();
+    document.getElementById("tab-ai")?.remove();
+  }
 }
 
 function setupTabs() {
@@ -152,5 +168,6 @@ reloadBtn.addEventListener("click", () => {
 });
 
 loadSearchPrefs();
+setupOptionalTabs();
 setupTabs();
 loadData();

@@ -235,6 +235,19 @@
       border-radius: 999px;
       font-size: 0.8rem;
     }
+
+    .analysis-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    tr.small {
+      background: #fcf8f3;
+    }
+    tr.insufficient {
+      color: var(--muted);
+    }
     .quick-filters {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -360,12 +373,16 @@
     <button data-tab="ranking">Ranking</button>
     <button data-tab="analysis">Analysis</button>
     <button data-tab="map">Map</button>
+    <button data-tab="mapping">Mapping</button>
+    <button data-tab="ai">AI</button>
   </nav>
   <main>
     <section id="tab-search" class="tab-panel active"><div id="mode-search"></div></section>
     <section id="tab-ranking" class="tab-panel"><div id="mode-ranking"></div></section>
     <section id="tab-analysis" class="tab-panel"><div id="mode-analysis"></div></section>
     <section id="tab-map" class="tab-panel"><div id="mode-map"></div></section>
+    <section id="tab-mapping" class="tab-panel"><div id="mode-mapping"></div></section>
+    <section id="tab-ai" class="tab-panel"><div id="mode-ai"></div></section>
   </main>
 
   <script type="module" src="./app.js"></script>
