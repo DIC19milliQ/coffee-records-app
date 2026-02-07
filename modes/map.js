@@ -30,25 +30,6 @@ function formatMetric(metric, value) {
   return `${Math.round(value)}`;
 }
 
-function buildIsoCandidates(iso2ToName) {
-  const fallback = Object.entries(iso2ToName).map(([code, name]) => ({ code, name }));
-  try {
-    const dn = new Intl.DisplayNames(["en"], { type: "region" });
-    const generated = [];
-    for (let i = 65; i <= 90; i += 1) {
-      for (let j = 65; j <= 90; j += 1) {
-        const code = String.fromCharCode(i, j);
-        const name = dn.of(code);
-        if (!name || name === code || /Unknown Region/i.test(name)) continue;
-        generated.push({ code, name });
-      }
-    }
-    return generated;
-  } catch {
-    return fallback;
-  }
-}
-
 function normalizeLoose(text) {
   return String(text || "").toLowerCase().replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]/g, "");
 }
@@ -63,9 +44,9 @@ function scoreCandidate(queryNorm, candidateNorm) {
 }
 
 export function initMap(container, context) {
-  const { state, loadMapping, saveMapping, ISO2_TO_NAME, openSearchWithCountry } = context;
-  const isoCandidates = buildIsoCandidates(ISO2_TO_NAME);
-  const ui = { metric: "uniqueBeans", selectedCountryKey: "", manageFilter: "", suggestionList: [] };
+  const { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry } = context;
+  const isoCandidates = countryNormalization.records.map((record) => ({ code: record.iso2, name: record.enName }));
+  const ui = { metric: "uniqueBeans", selectedCountryIso2: "", manageFilter: "", suggestionList: [] };
 
   container.innerHTML = `
     <div class="card">
@@ -101,6 +82,7 @@ export function initMap(container, context) {
         <div>
           <label>マップキー（ISO2推奨）</label>
           <input id="mapping-input" type="text" placeholder="例: BR / Brazil" />
+          <div id="mapping-hint" class="muted" style="font-size:12px;margin-top:4px;"></div>
           <div id="mapping-suggest" class="suggestions"></div>
         </div>
       </div>
@@ -134,12 +116,22 @@ export function initMap(container, context) {
     return features;
   }
 
-  function resolveMapKey(rawCountry) {
+  function resolveSavedMappingToIso2(rawCountry) {
     const mapped = state.mapping[rawCountry];
     if (!mapped) return null;
-    const trimmed = mapped.trim();
-    if (trimmed.length === 2) return ISO2_TO_NAME[trimmed.toUpperCase()] || null;
-    return trimmed;
+    return countryNormalization.resolveToIso2(mapped);
+  }
+
+  function normalizeMappingTable() {
+    let changed = false;
+    Object.entries(state.mapping).forEach(([rawCountry, mapped]) => {
+      const iso2 = countryNormalization.resolveToIso2(mapped);
+      if (iso2 && mapped !== iso2) {
+        state.mapping[rawCountry] = iso2;
+        changed = true;
+      }
+    });
+    if (changed) saveMapping(state.mapping);
   }
 
   function parseRatingScore(record) {
@@ -161,19 +153,19 @@ export function initMap(container, context) {
     const byMapCountry = new Map();
     const unmapped = [];
     byRawCountry.forEach((records, rawCountry) => {
-      const mapCountry = resolveMapKey(rawCountry);
-      if (!mapCountry) {
+      const iso2 = resolveSavedMappingToIso2(rawCountry);
+      if (!iso2) {
         unmapped.push({ name: rawCountry, count: records.length });
         return;
       }
-      if (!byMapCountry.has(mapCountry)) byMapCountry.set(mapCountry, { records: [], rawCountries: [] });
-      const slot = byMapCountry.get(mapCountry);
+      if (!byMapCountry.has(iso2)) byMapCountry.set(iso2, { records: [], rawCountries: [] });
+      const slot = byMapCountry.get(iso2);
       slot.records.push(...records);
       slot.rawCountries.push(rawCountry);
     });
 
     const aggregated = new Map();
-    byMapCountry.forEach((entry, mapCountry) => {
+    byMapCountry.forEach((entry, iso2) => {
       const beanCounts = new Map();
       const altitudeValues = [];
       let ratedCount = 0;
@@ -192,8 +184,9 @@ export function initMap(container, context) {
         if (Number.isFinite(altitude)) altitudeValues.push(altitude);
       });
       const topBeans = [...beanCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-      aggregated.set(mapCountry, {
-        countryName: mapCountry,
+      aggregated.set(iso2, {
+        iso2,
+        countryName: countryNormalization.getRecord(iso2)?.enName || iso2,
         rawCountries: [...new Set(entry.rawCountries)],
         totalRecords: entry.records.length,
         uniqueBeans: beanCounts.size,
@@ -265,9 +258,22 @@ export function initMap(container, context) {
         container.querySelector("#mapping-input").value = candidate.code;
         ui.suggestionList = [];
         renderSuggestions();
+        renderInputHint(candidate.code);
       });
       host.appendChild(button);
     });
+  }
+
+  function renderInputHint(value) {
+    const hint = container.querySelector("#mapping-hint");
+    const iso2 = countryNormalization.resolveToIso2(value);
+    if (!iso2) {
+      hint.textContent = "";
+      return;
+    }
+    const rec = countryNormalization.getRecord(iso2);
+    const ja = rec?.aliases?.find((alias) => /[\u3040-\u30ff\u4e00-\u9faf]/.test(alias));
+    hint.textContent = `${iso2}: ${rec?.enName || iso2}${ja ? ` / ${ja}` : ""}`;
   }
 
   function renderDrawer(stats) {
@@ -281,7 +287,7 @@ export function initMap(container, context) {
       : "<li class='muted'>豆データなし</li>";
     const openCountry = stats.rawCountries[0] || stats.countryName;
     drawer.innerHTML = `
-      <h3 style="margin-top:0;">${stats.countryName}</h3>
+      <h3 style="margin-top:0;">${stats.countryName} (${stats.iso2})</h3>
       <div class="drawer-metrics">
         <div><span class="muted">総記録数</span><strong>${stats.totalRecords}</strong></div>
         <div><span class="muted">ユニーク豆数</span><strong>${stats.uniqueBeans}</strong></div>
@@ -302,7 +308,14 @@ export function initMap(container, context) {
     const filter = normalizeLoose(ui.manageFilter);
     const countsByRaw = new Map(unmapped.map((entry) => [entry.name, entry.count]));
     const rows = Object.entries(state.mapping)
-      .map(([country, mapped]) => ({ country, mapped: String(mapped || "").trim(), count: countsByRaw.get(country) || state.records.filter((r) => String(r.country || "").trim() === country).length }))
+      .map(([country, mapped]) => {
+        const iso2 = countryNormalization.resolveToIso2(mapped);
+        return {
+          country,
+          mapped: iso2 || String(mapped || "").trim(),
+          count: countsByRaw.get(country) || state.records.filter((r) => String(r.country || "").trim() === country).length
+        };
+      })
       .filter((row) => !filter || normalizeLoose(`${row.country} ${row.mapped}`).includes(filter))
       .sort((a, b) => b.count - a.count || a.country.localeCompare(b.country, "ja"));
 
@@ -321,8 +334,9 @@ export function initMap(container, context) {
         const key = decodeURIComponent(button.dataset.saveCountry);
         const input = table.querySelector(`[data-edit-country="${encodeURIComponent(key)}"]`);
         const value = input?.value.trim();
-        if (!value) return;
-        state.mapping[key] = value;
+        const iso2 = countryNormalization.resolveToIso2(value);
+        if (!iso2) return;
+        state.mapping[key] = iso2;
         saveMapping(state.mapping);
         renderMap();
       });
@@ -342,6 +356,7 @@ export function initMap(container, context) {
     const mapRoot = container.querySelector("#map");
     mapRoot.innerHTML = "";
     const features = await loadWorldData();
+    const featureIso2 = new Map(features.map((feature) => [feature, countryNormalization.resolveFeatureToIso2(feature)]));
     const stats = buildCountryAggregation();
     const mappedStats = stats.aggregated;
     const values = [...mappedStats.values()].map((entry) => metricValue(entry, ui.metric)).filter((v) => Number.isFinite(v));
@@ -362,7 +377,8 @@ export function initMap(container, context) {
       .append("path")
       .attr("d", path)
       .attr("fill", (feature) => {
-        const row = mappedStats.get(feature.properties.name);
+        const iso2 = featureIso2.get(feature);
+        const row = iso2 ? mappedStats.get(iso2) : null;
         const value = metricValue(row, ui.metric);
         if (!Number.isFinite(value)) return "#f5f3ef";
         return scale(Math.sqrt(Math.min(value, p95)));
@@ -371,13 +387,16 @@ export function initMap(container, context) {
       .attr("stroke-width", 0.5)
       .style("cursor", "pointer")
       .on("click", (_event, feature) => {
-        ui.selectedCountryKey = feature.properties.name;
-        renderDrawer(mappedStats.get(ui.selectedCountryKey));
+        const iso2 = featureIso2.get(feature);
+        ui.selectedCountryIso2 = iso2 || "";
+        renderDrawer(iso2 ? mappedStats.get(iso2) : null);
       })
       .append("title")
       .text((feature) => {
-        const row = mappedStats.get(feature.properties.name);
-        return `${feature.properties.name}: ${formatMetric(ui.metric, metricValue(row, ui.metric))}`;
+        const iso2 = featureIso2.get(feature);
+        const row = iso2 ? mappedStats.get(iso2) : null;
+        const label = countryNormalization.getRecord(iso2)?.enName || feature.properties?.name || iso2 || "Unknown";
+        return `${label}: ${formatMetric(ui.metric, metricValue(row, ui.metric))}`;
       });
 
     const zoom = d3.zoom().scaleExtent([1, 8]).on("zoom", (event) => layer.attr("transform", event.transform));
@@ -396,11 +415,12 @@ export function initMap(container, context) {
     mapApi = { fitWorld: () => fitFeature({ type: "FeatureCollection", features }), mappedStats, unmapped: stats.unmapped };
 
     renderUnmapped(stats.unmapped);
-    renderDrawer(mappedStats.get(ui.selectedCountryKey));
+    renderDrawer(mappedStats.get(ui.selectedCountryIso2));
     renderMappingManagement(stats.unmapped);
   }
 
   state.mapping = loadMapping();
+  normalizeMappingTable();
 
   container.querySelector("#metric-select").addEventListener("change", (event) => {
     ui.metric = event.target.value;
@@ -412,12 +432,14 @@ export function initMap(container, context) {
   container.querySelector("#save-mapping").addEventListener("click", () => {
     const country = container.querySelector("#unmapped-select").value;
     const value = container.querySelector("#mapping-input").value.trim();
-    if (!country || !value) return;
-    state.mapping[country] = value;
+    const iso2 = countryNormalization.resolveToIso2(value);
+    if (!country || !iso2) return;
+    state.mapping[country] = iso2;
     saveMapping(state.mapping);
     container.querySelector("#mapping-input").value = "";
     ui.suggestionList = [];
     renderSuggestions();
+    renderInputHint("");
     renderMap();
   });
 
@@ -425,6 +447,7 @@ export function initMap(container, context) {
     const selectedCountry = container.querySelector("#unmapped-select").value;
     ui.suggestionList = getSuggestions(event.target.value, selectedCountry);
     renderSuggestions();
+    renderInputHint(event.target.value);
   });
 
   container.querySelector("#unmapped-select").addEventListener("change", () => {
@@ -432,6 +455,7 @@ export function initMap(container, context) {
     const selectedCountry = container.querySelector("#unmapped-select").value;
     ui.suggestionList = getSuggestions(value, selectedCountry);
     renderSuggestions();
+    renderInputHint(value);
   });
 
   const dialog = container.querySelector("#mapping-dialog");

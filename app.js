@@ -3,6 +3,7 @@ import { initRanking } from "./modes/ranking.js";
 import { initAnalysis } from "./modes/analysis.js";
 import { initMap } from "./modes/map.js";
 import { initAi } from "./modes/ai.js";
+import { buildCountryNormalization } from "./shared/countryNormalization.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
 
@@ -14,9 +15,9 @@ const SEARCH_PREFS_KEY = "coffeeSearchPrefs_v1";
 const ENABLE_AI = false;
 
 const DEFAULT_MAPPING = {
-  "ブラジル": "Brazil", "コロンビア": "Colombia", "エチオピア": "Ethiopia", "グアテマラ": "Guatemala", "ホンジュラス": "Honduras", "インドネシア": "Indonesia", "ケニア": "Kenya", "ペルー": "Peru", "ルワンダ": "Rwanda", "タンザニア": "Tanzania", "ベトナム": "Vietnam", "イエメン": "Yemen", "コスタリカ": "Costa Rica", "パナマ": "Panama", "ボリビア": "Bolivia", "ブルンジ": "Burundi", "エクアドル": "Ecuador", "エルサルバドル": "El Salvador", "インド": "India", "ジャマイカ": "Jamaica", "ニカラグア": "Nicaragua", "パプアニューギニア": "Papua New Guinea", "ウガンダ": "Uganda"
+  "ブラジル": "BR", "コロンビア": "CO", "エチオピア": "ET", "グアテマラ": "GT", "ホンジュラス": "HN", "インドネシア": "ID", "ケニア": "KE", "ペルー": "PE", "ルワンダ": "RW", "タンザニア": "TZ", "ベトナム": "VN", "イエメン": "YE", "コスタリカ": "CR", "パナマ": "PA", "ボリビア": "BO", "ブルンジ": "BI", "エクアドル": "EC", "エルサルバドル": "SV", "インド": "IN", "ジャマイカ": "JM", "ニカラグア": "NI", "パプアニューギニア": "PG", "ウガンダ": "UG"
 };
-const ISO2_TO_NAME = { BR: "Brazil", CO: "Colombia", ET: "Ethiopia", GT: "Guatemala", HN: "Honduras", ID: "Indonesia", KE: "Kenya", PE: "Peru", RW: "Rwanda", TZ: "Tanzania", VN: "Vietnam", YE: "Yemen", CR: "Costa Rica", PA: "Panama", BO: "Bolivia", BI: "Burundi", EC: "Ecuador", SV: "El Salvador", IN: "India", JM: "Jamaica", NI: "Nicaragua", PG: "Papua New Guinea", UG: "Uganda", US: "United States of America", JP: "Japan" };
+const countryNormalization = buildCountryNormalization();
 
 const state = {
   records: [],
@@ -100,7 +101,7 @@ const modes = {
   search: initSearch(document.getElementById("mode-search"), { state, saveSearchPrefs }),
   ranking: initRanking(document.getElementById("mode-ranking"), { state }),
   analysis: initAnalysis(document.getElementById("mode-analysis"), { state }),
-  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, ISO2_TO_NAME, openSearchWithCountry }),
+  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry }),
   ai: initAi(document.getElementById("mode-ai"), { state })
 };
 
