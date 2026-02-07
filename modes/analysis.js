@@ -3,6 +3,8 @@ import { normalizeText, validTaste, display } from "../shared/utils.js";
 const ROAST_ORDER = ["浅煎り", "中浅煎り", "中煎り", "中深煎り", "深煎り"];
 const ROAST_INDEX = new Map(ROAST_ORDER.map((value, index) => [value, index]));
 const TARGET_RATINGS = ["S", "A", "B", "C"];
+const AXIS2_BLOCKED_IN_TWO_AXIS = new Set(["country", "process"]);
+const SAFE_AXIS2_DEFAULT_ORDER = ["roast", "bitter", "acid", "altitude_bin"];
 
 const AXES = [
   { key: "country", label: "国", getValue: (record) => toCategory(record.country) },
@@ -85,10 +87,6 @@ function formatRate(value) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function isPrunableAxis(axisKey) {
-  return axisKey === "country" || axisKey === "process";
-}
-
 function sortValues(axisKey, values) {
   const unique = [...new Set(values)];
   if (axisKey === "altitude_bin") {
@@ -138,25 +136,6 @@ function getCellDisplay(cell) {
   if (cell.n < 3) return { rateText: "—", nText: "", className: "insufficient", canClick: false };
   if (cell.n < 5) return { rateText: formatRate(cell.hitRate), nText: `(n=${cell.n})`, className: "small", canClick: true };
   return { rateText: formatRate(cell.hitRate), nText: `n=${cell.n}`, className: "ok", canClick: true };
-}
-
-function getValidCategorySets(records, axis1, axis2) {
-  const rowKeys = sortValues(axis1.key, records.map((record) => axis1.getValue(record)));
-  const colKeys = sortValues(axis2.key, records.map((record) => axis2.getValue(record)));
-  const rowValid = new Set();
-  const colValid = new Set();
-
-  rowKeys.forEach((rowKey) => {
-    colKeys.forEach((colKey) => {
-      const n = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey).length;
-      if (n >= 3) {
-        rowValid.add(rowKey);
-        colValid.add(colKey);
-      }
-    });
-  });
-
-  return { rowValid, colValid };
 }
 
 export function initAnalysis(container, context) {
@@ -209,19 +188,24 @@ export function initAnalysis(container, context) {
     return AXES.find((axis) => axis.key === key) || AXES[0];
   }
 
+  function getAxis2Candidates() {
+    return AXES
+      .filter((axis) => axis.key !== ui.axis1 && !AXIS2_BLOCKED_IN_TWO_AXIS.has(axis.key))
+      .map((axis) => ({ value: axis.key, label: axis.label }));
+  }
+
+  function ensureValidAxis2() {
+    if (ui.type === "one") return;
+    const axis2Candidates = getAxis2Candidates();
+    if (axis2Candidates.some((option) => option.value === ui.axis2)) return;
+
+    const fallback = SAFE_AXIS2_DEFAULT_ORDER.find((axisKey) => axis2Candidates.some((option) => option.value === axisKey));
+    ui.axis2 = fallback || axis2Candidates[0]?.value || ui.axis2;
+  }
+
   function getFilterValueOptions() {
     const filterAxis = axisByKey(ui.filterAxis);
-    const allValues = sortValues(filterAxis.key, state.records.map((record) => filterAxis.getValue(record)));
-    if (!isPrunableAxis(filterAxis.key)) return allValues;
-
-    const axis1 = axisByKey(ui.axis1);
-    const axis2 = axisByKey(ui.axis2);
-    return allValues.filter((value) => {
-      const subset = state.records.filter((record) => filterAxis.getValue(record) === value);
-      if (!subset.length) return false;
-      const { rowValid, colValid } = getValidCategorySets(subset, axis1, axis2);
-      return rowValid.size > 0 && colValid.size > 0;
-    });
+    return sortValues(filterAxis.key, state.records.map((record) => filterAxis.getValue(record)));
   }
 
   function selectHtml(id, label, value, options) {
@@ -235,8 +219,8 @@ export function initAnalysis(container, context) {
     let html = selectHtml("analysis-axis1", "Axis1", ui.axis1, axisOptions);
 
     if (ui.type !== "one") {
-      const axis2Options = axisOptions.filter((option) => option.value !== ui.axis1);
-      if (!axis2Options.some((option) => option.value === ui.axis2)) ui.axis2 = axis2Options[0]?.value || ui.axis2;
+      const axis2Options = getAxis2Candidates();
+      ensureValidAxis2();
       html += selectHtml("analysis-axis2", "Axis2", ui.axis2, axis2Options);
     }
 
@@ -340,12 +324,6 @@ export function initAnalysis(container, context) {
     let rowKeys = sortValues(axis1.key, records.map((record) => axis1.getValue(record)));
     let colKeys = sortValues(axis2.key, records.map((record) => axis2.getValue(record)));
 
-    if (isPrunableAxis(axis1.key) || isPrunableAxis(axis2.key)) {
-      const { rowValid, colValid } = getValidCategorySets(records, axis1, axis2);
-      if (isPrunableAxis(axis1.key)) rowKeys = rowKeys.filter((key) => rowValid.has(key));
-      if (isPrunableAxis(axis2.key)) colKeys = colKeys.filter((key) => colValid.has(key));
-    }
-
     const cells = rowKeys.flatMap((rowKey) => colKeys.map((colKey) => {
       const list = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey);
       return { rowKey, colKey, summary: summarize(list, ui.targetRatings, `${rowKey} × ${colKey}`, ui.overallHitRate) };
@@ -394,6 +372,7 @@ export function initAnalysis(container, context) {
 
   function render() {
     const all = state.records;
+    ensureValidAxis2();
     updateAxisControls();
     const filtered = ui.type === "two-filter"
       ? all.filter((record) => axisByKey(ui.filterAxis).getValue(record) === ui.filterValue)
