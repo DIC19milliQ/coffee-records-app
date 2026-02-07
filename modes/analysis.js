@@ -1,9 +1,13 @@
 import { normalizeText, validTaste, display } from "../shared/utils.js";
 
+const ROAST_ORDER = ["浅煎り", "中浅煎り", "中煎り", "中深煎り", "深煎り"];
+const ROAST_INDEX = new Map(ROAST_ORDER.map((value, index) => [value, index]));
+const TARGET_RATINGS = ["S", "A", "B", "C"];
+
 const AXES = [
   { key: "country", label: "国", getValue: (record) => toCategory(record.country) },
   { key: "process", label: "精製", getValue: (record) => toCategory(record.process) },
-  { key: "roast", label: "焙煎", getValue: (record) => toCategory(record.roast) },
+  { key: "roast", label: "焙煎", getValue: (record) => normalizeRoast(record.roast) },
   { key: "bitter", label: "苦味", getValue: (record) => toTasteCategory(record.bitter) },
   { key: "acid", label: "酸味", getValue: (record) => toTasteCategory(record.acid) },
   { key: "altitude_bin", label: "標高ビン", getValue: (record) => toAltitudeBin(record.altitude) }
@@ -41,33 +45,83 @@ function toAltitudeBin(value) {
   return `${start}-${end}m`;
 }
 
-function isHit(record, targetSet) {
-  const rating = normalizeText(record.rating).toUpperCase();
-  return targetSet === "S" ? rating === "S" : rating === "S" || rating === "A";
+function parseAltitudeBinStart(value) {
+  const text = String(value ?? "");
+  const match = text.match(/^(\d+)\s*-/);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
 }
 
-function sampleClass(n) {
-  if (n < 3) return "insufficient";
-  if (n < 5) return "small";
-  return "ok";
+function normalizeRoast(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "不明";
+
+  const normalized = text.replace(/[\s　]/g, "");
+  const table = {
+    "浅": "浅煎り",
+    "浅煎": "浅煎り",
+    "浅煎り": "浅煎り",
+    "中浅": "中浅煎り",
+    "中浅煎": "中浅煎り",
+    "中浅煎り": "中浅煎り",
+    "中": "中煎り",
+    "中煎": "中煎り",
+    "中煎り": "中煎り",
+    "中深": "中深煎り",
+    "中深煎": "中深煎り",
+    "中深煎り": "中深煎り",
+    "深": "深煎り",
+    "深煎": "深煎り",
+    "深煎り": "深煎り"
+  };
+  return table[normalized] || text;
+}
+
+function isTargetRating(record, targetRatings) {
+  const rating = normalizeText(record.rating).toUpperCase();
+  return targetRatings.has(rating);
 }
 
 function formatRate(value) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function sortByHitRate(rows) {
-  return [...rows].sort((a, b) => b.hitRate - a.hitRate || b.n - a.n || String(a.key).localeCompare(String(b.key), "ja"));
+function isPrunableAxis(axisKey) {
+  return axisKey === "country" || axisKey === "process";
 }
 
-function summarize(records, allCount, targetSet, key, overallHitRate = 0) {
+function sortValues(axisKey, values) {
+  const unique = [...new Set(values)];
+  if (axisKey === "altitude_bin") {
+    return unique.sort((a, b) => {
+      if (a === "不明") return 1;
+      if (b === "不明") return -1;
+      return parseAltitudeBinStart(a) - parseAltitudeBinStart(b) || String(a).localeCompare(String(b), "ja");
+    });
+  }
+  if (axisKey === "roast") {
+    return unique.sort((a, b) => {
+      const ai = ROAST_INDEX.has(a) ? ROAST_INDEX.get(a) : Number.POSITIVE_INFINITY;
+      const bi = ROAST_INDEX.has(b) ? ROAST_INDEX.get(b) : Number.POSITIVE_INFINITY;
+      if (ai !== bi) return ai - bi;
+      if (a === "不明") return 1;
+      if (b === "不明") return -1;
+      return String(a).localeCompare(String(b), "ja");
+    });
+  }
+  if (axisKey === "bitter" || axisKey === "acid") {
+    return unique.sort((a, b) => Number(a) - Number(b));
+  }
+  return unique.sort((a, b) => String(a).localeCompare(String(b), "ja"));
+}
+
+function summarize(records, targetRatings, key, overallHitRate = 0) {
   const n = records.length;
-  const hitCount = records.filter((record) => isHit(record, targetSet)).length;
-  const hitRate = n ? hitCount / n : 0;
+  const targetCount = records.filter((record) => isTargetRating(record, targetRatings)).length;
+  const hitRate = n ? targetCount / n : 0;
   return {
     key,
     n,
-    hitCount,
+    targetCount,
     hitRate,
     deltaPt: hitRate - overallHitRate,
     counts: {
@@ -86,10 +140,29 @@ function getCellDisplay(cell) {
   return { rateText: formatRate(cell.hitRate), nText: `n=${cell.n}`, className: "ok", canClick: true };
 }
 
+function getValidCategorySets(records, axis1, axis2) {
+  const rowKeys = sortValues(axis1.key, records.map((record) => axis1.getValue(record)));
+  const colKeys = sortValues(axis2.key, records.map((record) => axis2.getValue(record)));
+  const rowValid = new Set();
+  const colValid = new Set();
+
+  rowKeys.forEach((rowKey) => {
+    colKeys.forEach((colKey) => {
+      const n = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey).length;
+      if (n >= 3) {
+        rowValid.add(rowKey);
+        colValid.add(colKey);
+      }
+    });
+  });
+
+  return { rowValid, colValid };
+}
+
 export function initAnalysis(container, context) {
   const { state } = context;
   const ui = {
-    targetSet: "S",
+    targetRatings: new Set(["S"]),
     type: "one",
     axis1: "country",
     axis2: "process",
@@ -97,7 +170,8 @@ export function initAnalysis(container, context) {
     filterValue: "",
     detailRecords: [],
     detailSummary: null,
-    overallHitRate: 0
+    overallHitRate: 0,
+    targetError: ""
   };
 
   container.innerHTML = `
@@ -107,10 +181,10 @@ export function initAnalysis(container, context) {
       <div class="analysis-controls">
         <div>
           <label>対象評価セット</label>
-          <select id="analysis-target-set">
-            <option value="S">Sのみ</option>
-            <option value="SA">S + A</option>
-          </select>
+          <div class="option-list" id="analysis-target-set">
+            ${TARGET_RATINGS.map((rating) => `<label><input type="checkbox" value="${rating}" ${rating === "S" ? "checked" : ""}/> ${rating}</label>`).join("")}
+          </div>
+          <div id="analysis-target-error" class="muted" style="color:#b03a2e;"></div>
         </div>
         <div>
           <label>分析タイプ</label>
@@ -135,6 +209,21 @@ export function initAnalysis(container, context) {
     return AXES.find((axis) => axis.key === key) || AXES[0];
   }
 
+  function getFilterValueOptions() {
+    const filterAxis = axisByKey(ui.filterAxis);
+    const allValues = sortValues(filterAxis.key, state.records.map((record) => filterAxis.getValue(record)));
+    if (!isPrunableAxis(filterAxis.key)) return allValues;
+
+    const axis1 = axisByKey(ui.axis1);
+    const axis2 = axisByKey(ui.axis2);
+    return allValues.filter((value) => {
+      const subset = state.records.filter((record) => filterAxis.getValue(record) === value);
+      if (!subset.length) return false;
+      const { rowValid, colValid } = getValidCategorySets(subset, axis1, axis2);
+      return rowValid.size > 0 && colValid.size > 0;
+    });
+  }
+
   function selectHtml(id, label, value, options) {
     const optionHtml = options.map((option) => `<option value="${option.value}" ${option.value === value ? "selected" : ""}>${option.label}</option>`).join("");
     return `<div><label>${label}</label><select id="${id}">${optionHtml}</select></div>`;
@@ -156,7 +245,7 @@ export function initAnalysis(container, context) {
       if (!filterAxisOptions.some((option) => option.value === ui.filterAxis)) ui.filterAxis = filterAxisOptions[0]?.value || ui.filterAxis;
       html += selectHtml("analysis-filter-axis", "FilterAxis", ui.filterAxis, filterAxisOptions);
 
-      const values = [...new Set(state.records.map((record) => axisByKey(ui.filterAxis).getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
+      const values = getFilterValueOptions();
       if (!values.includes(ui.filterValue)) ui.filterValue = values[0] || "";
       const valueOptions = values.map((value) => ({ value, label: String(value) }));
       html += selectHtml("analysis-filter-value", "FilterValue", ui.filterValue, valueOptions);
@@ -183,7 +272,7 @@ export function initAnalysis(container, context) {
   }
 
   function setDetail(records, label) {
-    const detailSummary = summarize(records, records.length, ui.targetSet, label, ui.overallHitRate);
+    const detailSummary = summarize(records, ui.targetRatings, label, ui.overallHitRate);
     ui.detailRecords = records;
     ui.detailSummary = detailSummary;
     renderDetail();
@@ -215,16 +304,14 @@ export function initAnalysis(container, context) {
 
   function renderOneAxis(records) {
     const axis1 = axisByKey(ui.axis1);
-    const rawRows = [...new Map(records.map((record) => [axis1.getValue(record), null])).keys()].map((key) => {
-      const items = records.filter((record) => axis1.getValue(record) === key);
-      return summarize(items, records.length, ui.targetSet, key, ui.overallHitRate);
-    });
+    const keys = sortValues(axis1.key, records.map((record) => axis1.getValue(record)));
+    const rawRows = keys.map((key) => summarize(records.filter((record) => axis1.getValue(record) === key), ui.targetRatings, key, ui.overallHitRate));
 
-    const sorted = sortByHitRate(rawRows);
+    const sorted = [...rawRows].sort((a, b) => b.hitRate - a.hitRate || b.n - a.n || String(a.key).localeCompare(String(b.key), "ja"));
     const topRows = sorted.slice(0, 15);
     const topKeys = new Set(topRows.map((row) => row.key));
     const otherRecords = records.filter((record) => !topKeys.has(axis1.getValue(record)));
-    const rows = otherRecords.length ? [...topRows, summarize(otherRecords, records.length, ui.targetSet, "その他", ui.overallHitRate)] : topRows;
+    const rows = otherRecords.length ? [...topRows, summarize(otherRecords, ui.targetRatings, "その他", ui.overallHitRate)] : topRows;
 
     const body = rows.map((row) => {
       const displayCell = getCellDisplay(row);
@@ -250,12 +337,18 @@ export function initAnalysis(container, context) {
   function renderTwoAxis(records) {
     const axis1 = axisByKey(ui.axis1);
     const axis2 = axisByKey(ui.axis2);
-    const rowKeys = [...new Set(records.map((record) => axis1.getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
-    const colKeys = [...new Set(records.map((record) => axis2.getValue(record)))].sort((a, b) => String(a).localeCompare(String(b), "ja"));
+    let rowKeys = sortValues(axis1.key, records.map((record) => axis1.getValue(record)));
+    let colKeys = sortValues(axis2.key, records.map((record) => axis2.getValue(record)));
+
+    if (isPrunableAxis(axis1.key) || isPrunableAxis(axis2.key)) {
+      const { rowValid, colValid } = getValidCategorySets(records, axis1, axis2);
+      if (isPrunableAxis(axis1.key)) rowKeys = rowKeys.filter((key) => rowValid.has(key));
+      if (isPrunableAxis(axis2.key)) colKeys = colKeys.filter((key) => colValid.has(key));
+    }
 
     const cells = rowKeys.flatMap((rowKey) => colKeys.map((colKey) => {
       const list = records.filter((record) => axis1.getValue(record) === rowKey && axis2.getValue(record) === colKey);
-      return { rowKey, colKey, summary: summarize(list, records.length, ui.targetSet, `${rowKey} × ${colKey}`, ui.overallHitRate) };
+      return { rowKey, colKey, summary: summarize(list, ui.targetRatings, `${rowKey} × ${colKey}`, ui.overallHitRate) };
     }));
 
     const gridTemplate = `180px repeat(${Math.max(colKeys.length, 1)}, minmax(90px, 1fr))`;
@@ -266,7 +359,7 @@ export function initAnalysis(container, context) {
         if (!cell) return "<div class='heatmap-cell empty'>—</div>";
         const displayCell = getCellDisplay(cell);
         const opacity = cell.n < 3 ? 0.2 : Math.max(0.22, cell.hitRate);
-        return `<button type="button" class="heatmap-cell ${displayCell.className} ${displayCell.canClick ? "clickable" : ""}" style="--heat:${opacity};" ${displayCell.canClick ? `data-analysis-detail="${encodeURIComponent(JSON.stringify(cell.records))}" data-analysis-label="${encodeURIComponent(`${rowKey} × ${colKey}`)}"` : "disabled"}>
+        return `<button type="button" class="heatmap-cell ${displayCell.className} ${displayCell.canClick ? "clickable" : ""}" style="--heat:${opacity};" ${displayCell.canClick ? `data-analysis-detail="${encodeURIComponent(JSON.stringify(cell.records))}" data-analysis-label="${encodeURIComponent(`${rowKey} × ${colKey}`)}` : "disabled"}>
             <div class="metric-main">${displayCell.rateText}</div>
             <div class="metric-sub">${displayCell.nText || `n=${cell.n}`}</div>
           </button>`;
@@ -274,8 +367,10 @@ export function initAnalysis(container, context) {
       return `<div class="heatmap-row-label">${display(rowKey)}</div>${rowCells}`;
     }).join("");
 
+    const emptyText = rowKeys.length && colKeys.length ? "" : "<p class='muted'>有効なカテゴリがありません。</p>";
     container.querySelector("#analysis-result").innerHTML = `
       <h3>主結果（${axis1.label} × ${axis2.label}）</h3>
+      ${emptyText}
       <div class="analysis-heatmap" style="grid-template-columns:${gridTemplate};">
         <div></div>
         ${headCols}
@@ -285,13 +380,31 @@ export function initAnalysis(container, context) {
     attachDetailHandlers();
   }
 
+  function readTargetRatingsFromUi() {
+    const checked = [...container.querySelectorAll("#analysis-target-set input[type='checkbox']:checked")].map((node) => node.value);
+    if (!checked.length) {
+      ui.targetRatings = new Set(["S"]);
+      container.querySelector("#analysis-target-set input[value='S']").checked = true;
+      ui.targetError = "最低1つ必要なため S を自動選択しました。";
+      return;
+    }
+    ui.targetRatings = new Set(checked);
+    ui.targetError = "";
+  }
+
   function render() {
     const all = state.records;
     updateAxisControls();
-    const filtered = ui.type === "two-filter" ? all.filter((record) => axisByKey(ui.filterAxis).getValue(record) === ui.filterValue) : all;
-    const targetCount = filtered.filter((record) => isHit(record, ui.targetSet)).length;
-    ui.overallHitRate = filtered.length ? targetCount / filtered.length : 0;
-    container.querySelector("#analysis-overall").textContent = `全体当たり率: ${formatRate(ui.overallHitRate)}（対象 ${ui.targetSet === "S" ? "S" : "S+A"} / 全${filtered.length}件）`;
+    const filtered = ui.type === "two-filter"
+      ? all.filter((record) => axisByKey(ui.filterAxis).getValue(record) === ui.filterValue)
+      : all;
+
+    const allTargetCount = all.filter((record) => isTargetRating(record, ui.targetRatings)).length;
+    ui.overallHitRate = all.length ? allTargetCount / all.length : 0;
+
+    const selectedLabels = TARGET_RATINGS.filter((rating) => ui.targetRatings.has(rating)).join("+");
+    container.querySelector("#analysis-overall").textContent = `全体当たり率: ${formatRate(ui.overallHitRate)}（対象 ${selectedLabels} / 全${all.length}件）`;
+    container.querySelector("#analysis-target-error").textContent = ui.targetError;
 
     if (ui.type === "one") renderOneAxis(filtered);
     else renderTwoAxis(filtered);
@@ -299,10 +412,13 @@ export function initAnalysis(container, context) {
     renderDetail();
   }
 
-  container.querySelector("#analysis-target-set").addEventListener("change", (event) => {
-    ui.targetSet = event.target.value;
-    render();
+  container.querySelectorAll("#analysis-target-set input[type='checkbox']").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      readTargetRatingsFromUi();
+      render();
+    });
   });
+
   container.querySelector("#analysis-type").addEventListener("change", (event) => {
     ui.type = event.target.value;
     render();
