@@ -8,26 +8,20 @@
     "アメリカ": "United States",
     "米国": "United States",
     "ハワイ": "United States",
-
     "uk": "United Kingdom",
     "u.k.": "United Kingdom",
     "england": "United Kingdom",
     "great britain": "United Kingdom",
     "イギリス": "United Kingdom",
-
     "cote d ivoire": "Côte d'Ivoire",
     "cote d'ivoire": "Côte d'Ivoire",
     "ivory coast": "Côte d'Ivoire",
-
     "dr congo": "Congo - Kinshasa",
     "drc": "Congo - Kinshasa",
-
     "lao": "Laos",
     "lao pdr": "Laos",
-
     "brasil": "Brazil",
     "columbia": "Colombia",
-
     "ethiopia": "Ethiopia",
     "エチオピア": "Ethiopia",
     "kenya": "Kenya",
@@ -38,7 +32,6 @@
     "タンザニア": "Tanzania",
     "uganda": "Uganda",
     "ウガンダ": "Uganda",
-
     "guatemala": "Guatemala",
     "グアテマラ": "Guatemala",
     "honduras": "Honduras",
@@ -51,7 +44,6 @@
     "コスタリカ": "Costa Rica",
     "panama": "Panama",
     "パナマ": "Panama",
-
     "indonesia": "Indonesia",
     "インドネシア": "Indonesia",
     "papua new guinea": "Papua New Guinea",
@@ -80,6 +72,11 @@
     "myanmar": "Myanmar",
     "ミャンマー": "Myanmar",
     "japan": "Japan",
-    "日本": "Japan"    
+    "日本": "Japan",
+    "china": "China",
+    "china mainland": "China",
+    "people's republic of china": "China",
+    "prc": "China",
+    "中国": "China"
   }
 }
