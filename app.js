@@ -2,7 +2,7 @@ import { initSearch } from "./modes/search.js";
 import { initRanking } from "./modes/ranking.js";
 import { initAnalysis } from "./modes/analysis.js";
 import { initMap } from "./modes/map.js";
-import { buildCountryNormalization } from "./shared/countryNormalization.js";
+import { buildCountryNormalization, normalizeCountryKey } from "./shared/countryNormalization.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
 
@@ -41,10 +41,32 @@ function cacheGet() {
   } catch { return null; }
 }
 function loadMapping() {
-  try { return { ...DEFAULT_MAPPING, ...(JSON.parse(localStorage.getItem(MAP_KEY) || "{}")) }; }
-  catch { return { ...DEFAULT_MAPPING }; }
+  const normalizeMappingEntries = (mapping) => {
+    const normalized = {};
+    Object.entries(mapping || {}).forEach(([rawCountry, mappedValue]) => {
+      const key = normalizeCountryKey(rawCountry);
+      if (!key) return;
+      normalized[key] = mappedValue;
+    });
+    return normalized;
+  };
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(MAP_KEY) || "{}");
+    return { ...normalizeMappingEntries(DEFAULT_MAPPING), ...normalizeMappingEntries(saved) };
+  } catch {
+    return { ...normalizeMappingEntries(DEFAULT_MAPPING) };
+  }
 }
-function saveMapping(mapping) { localStorage.setItem(MAP_KEY, JSON.stringify(mapping)); }
+function saveMapping(mapping) {
+  const normalized = {};
+  Object.entries(mapping || {}).forEach(([rawCountry, mappedValue]) => {
+    const key = normalizeCountryKey(rawCountry);
+    if (!key) return;
+    normalized[key] = mappedValue;
+  });
+  localStorage.setItem(MAP_KEY, JSON.stringify(normalized));
+}
 
 function saveSearchPrefs() {
   const f = state.search.filters;
@@ -82,6 +104,7 @@ function sanitizeRecords(items) {
   return items.filter((i) => i && typeof i === "object").filter((i) => !isHeaderRow(i)).map((i) => {
     const c = {};
     fields.forEach((k) => { c[k] = i[k] ?? ""; });
+    c.country = normalizeCountryKey(c.country);
     c._norm = {};
     fields.forEach((k) => { c._norm[k] = normalizeText(c[k]); });
     return c;

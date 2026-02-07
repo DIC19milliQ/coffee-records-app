@@ -5,6 +5,28 @@ function normalizeLoose(text) {
     .replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]/g, "");
 }
 
+const INVISIBLE_AND_CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g;
+
+export function normalizeCountryKey(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(INVISIBLE_AND_CONTROL, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function inspectCountryString(value) {
+  const raw = String(value || "");
+  return {
+    raw,
+    trimmed: raw.trim(),
+    nfkc: raw.normalize("NFKC"),
+    normalizedKey: normalizeCountryKey(raw),
+    hasInvisibleOrControl: /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\ufeff]/.test(raw),
+    codePoints: [...raw].map((char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`)
+  };
+}
+
 const ISO3_BY_ISO2 = {
   BR: "BRA", CO: "COL", ET: "ETH", GT: "GTM", HN: "HND", ID: "IDN", KE: "KEN", PE: "PER", RW: "RWA", TZ: "TZA", VN: "VNM", YE: "YEM", CR: "CRI", PA: "PAN", BO: "BOL", BI: "BDI", EC: "ECU", SV: "SLV", IN: "IND", JM: "JAM", NI: "NIC", PG: "PNG", UG: "UGA", US: "USA", JP: "JPN", TH: "THA"
 };
@@ -88,11 +110,11 @@ export function buildCountryNormalization(additionalAliases = {}) {
   const byIso3 = new Map();
   const byAlias = new Map();
   byIso2.forEach((record) => {
-    if (record.iso3) byIso3.set(record.iso3.toUpperCase(), record.iso2);
+    if (record.iso3) byIso3.set(record.iso3.toUpperCase(), LEGACY_ISO2_TO_CANONICAL[record.iso2] || record.iso2);
     record.aliases.forEach((alias) => {
       const key = normalizeLoose(alias);
       if (!key) return;
-      if (!byAlias.has(key)) byAlias.set(key, record.iso2);
+      if (!byAlias.has(key)) byAlias.set(key, LEGACY_ISO2_TO_CANONICAL[record.iso2] || record.iso2);
     });
   });
 
@@ -104,13 +126,14 @@ export function buildCountryNormalization(additionalAliases = {}) {
   const records = [...byIso2.values()].sort((a, b) => a.enName.localeCompare(b.enName, "en"));
 
   function resolveToIso2(value) {
-    const raw = String(value || "").trim();
+    const raw = normalizeCountryKey(value);
     if (!raw) return null;
     const upper = raw.toUpperCase();
     if (/^[A-Z]{2}$/.test(upper) && LEGACY_ISO2_TO_CANONICAL[upper]) return LEGACY_ISO2_TO_CANONICAL[upper];
     if (/^[A-Z]{2}$/.test(upper) && byIso2.has(upper)) return upper;
     if (/^[A-Z]{3}$/.test(upper) && byIso3.has(upper)) return byIso3.get(upper);
-    return byAlias.get(normalizeLoose(raw)) || null;
+    const resolved = byAlias.get(normalizeLoose(raw)) || null;
+    return resolved ? (LEGACY_ISO2_TO_CANONICAL[resolved] || resolved) : null;
   }
 
   function getRecord(iso2) {
