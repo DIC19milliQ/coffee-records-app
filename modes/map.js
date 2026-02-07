@@ -1,4 +1,5 @@
 import { normalizeText } from "../shared/utils.js";
+import { inspectCountryString, normalizeCountryKey } from "../shared/countryNormalization.js";
 
 const RATING_SCORE = { S: 5, A: 3, B: 1 };
 
@@ -119,7 +120,7 @@ export function initMap(container, context) {
     if (!targets.length) return;
 
     targets.forEach((rawCountryInput) => {
-      const rawCountry = String(rawCountryInput || "").trim();
+      const rawCountry = normalizeCountryKey(rawCountryInput);
       if (!rawCountry) return;
       const mapped = state.mapping[rawCountry] || null;
       const resolvedFromMapping = mapped ? countryNormalization.resolveToIso2(mapped) : null;
@@ -138,10 +139,13 @@ export function initMap(container, context) {
 
       console.info("[Map ISO2 Diagnose]", {
         rawCountry,
+        recordCountryDiagnostics: inspectCountryString(rawCountryInput),
         mappedValue: mapped,
+        mappedValueDiagnostics: inspectCountryString(mapped),
         resolvedFromMapping,
         relatedFeatures,
-        mappedStatsHit: resolvedFromMapping ? mappedStats.has(resolvedFromMapping) : false
+        mappedStatsHit: resolvedFromMapping ? mappedStats.has(resolvedFromMapping) : false,
+        mappedStatsRow: resolvedFromMapping ? mappedStats.get(resolvedFromMapping) || null : null
       });
     });
   }
@@ -171,7 +175,7 @@ export function initMap(container, context) {
   }
 
   function resolveRawCountryToIso2(rawCountry) {
-    const raw = String(rawCountry || "").trim();
+    const raw = normalizeCountryKey(rawCountry);
     if (!raw) return null;
     const directIso2 = countryNormalization.resolveToIso2(raw);
     if (directIso2) return directIso2;
@@ -181,7 +185,7 @@ export function initMap(container, context) {
   }
 
   function seedMappingFromRecords() {
-    const rawCountries = [...new Set(state.records.map((record) => String(record.country || "").trim()).filter(Boolean))];
+    const rawCountries = [...new Set(state.records.map((record) => normalizeCountryKey(record.country)).filter(Boolean))];
     let changed = false;
     const unresolved = [];
 
@@ -242,7 +246,7 @@ export function initMap(container, context) {
   function buildCountryAggregation() {
     const byRawCountry = new Map();
     state.records.forEach((record) => {
-      const rawCountry = String(record.country || "").trim();
+      const rawCountry = normalizeCountryKey(record.country);
       if (!rawCountry) return;
       if (!byRawCountry.has(rawCountry)) byRawCountry.set(rawCountry, []);
       byRawCountry.get(rawCountry).push(record);
@@ -420,7 +424,7 @@ export function initMap(container, context) {
         return {
           country,
           mapped: iso2 || String(mapped || "").trim(),
-          count: countsByRaw.get(country) || state.records.filter((r) => String(r.country || "").trim() === country).length
+          count: countsByRaw.get(country) || state.records.filter((r) => normalizeCountryKey(r.country) === country).length
         };
       })
       .filter((row) => !filter || normalizeLoose(`${row.country} ${row.mapped}`).includes(filter))
@@ -440,7 +444,7 @@ export function initMap(container, context) {
       button.addEventListener("click", () => {
         const key = decodeURIComponent(button.dataset.saveCountry);
         const input = table.querySelector(`[data-edit-country="${encodeURIComponent(key)}"]`);
-        const value = input?.value.trim();
+        const value = normalizeCountryKey(input?.value);
         const iso2 = countryNormalization.resolveToIso2(value);
         if (!iso2) return;
         state.mapping[key] = iso2;
@@ -541,7 +545,7 @@ export function initMap(container, context) {
 
   container.querySelector("#save-mapping").addEventListener("click", () => {
     const country = container.querySelector("#unmapped-select").value;
-    const value = container.querySelector("#mapping-input").value.trim();
+    const value = normalizeCountryKey(container.querySelector("#mapping-input").value);
     const iso2 = countryNormalization.resolveToIso2(value);
     if (!country || !iso2) return;
     state.mapping[country] = iso2;
