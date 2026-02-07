@@ -59,7 +59,8 @@ export function initMap(container, context) {
     unknownCountrySignature: "",
     selectedUnjoinableIso2: "",
     latestSaveStatus: "",
-    focusIso2: ""
+    focusIso2: "",
+    selectedDiagnoseCountry: ""
   };
   let countryAliasIndex = new Map();
   let aliasDictionaryLoaded = false;
@@ -81,9 +82,12 @@ export function initMap(container, context) {
         </label>
         <button id="fit-world" class="ghost">世界全体</button>
         <button id="open-mapping" class="ghost">マッピング管理</button>
+        <label>診断対象国
+          <select id="diagnose-country-select"></select>
+        </label>
         <button id="diagnose-selected" class="ghost">診断ログ出力</button>
       </div>
-      <div id="diagnose-status" class="muted">診断ログ出力を押すとここに結果を表示します。</div>
+      <div id="diagnose-status" class="muted">使い方: ①「診断対象国」を選ぶ ②「診断ログ出力」を押す。</div>
       <div class="map-layout">
         <div>
           <div id="map"></div>
@@ -308,7 +312,7 @@ export function initMap(container, context) {
     if (!host) return;
     if (!report) {
       host.classList.add("is-warning");
-      host.textContent = "対象国を選択してください";
+      host.textContent = "対象国を選択してください（上部の「診断対象国」から選べます）";
       return;
     }
     const hasFeature = pickReportCheck(report, "hasFeature", "featureExists");
@@ -373,6 +377,40 @@ export function initMap(container, context) {
 
   function metricValue(stats, metric) {
     return stats?.[metric] ?? null;
+  }
+
+  function listRawCountriesByCount() {
+    const counts = new Map();
+    state.records.forEach((record) => {
+      const rawCountry = normalizeCountryKey(record.country);
+      if (!rawCountry) return;
+      counts.set(rawCountry, (counts.get(rawCountry) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));
+  }
+
+  function renderDiagnoseCountryOptions() {
+    const select = container.querySelector("#diagnose-country-select");
+    if (!select) return;
+    const options = listRawCountriesByCount();
+    const preferred = ui.selectedDiagnoseCountry || select.value;
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = options.length ? "診断対象国を選択" : "診断対象国なし";
+    select.appendChild(placeholder);
+    options.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.name;
+      option.textContent = `${entry.name} (${entry.count})`;
+      select.appendChild(option);
+    });
+    if (preferred && options.some((entry) => entry.name === preferred)) {
+      select.value = preferred;
+    }
+    ui.selectedDiagnoseCountry = select.value;
   }
 
   function renderUnmapped(unmapped) {
@@ -629,6 +667,7 @@ export function initMap(container, context) {
 
     mapApi = { fitWorld: () => fitFeature({ type: "FeatureCollection", features }), mappedStats, unmapped: stats.unmapped, featureIso2Set };
 
+    renderDiagnoseCountryOptions();
     renderUnmapped(stats.unmapped);
     renderUnjoinable(stats.unjoinable);
     renderSaveStatus(ui.latestSaveStatus);
@@ -684,6 +723,15 @@ export function initMap(container, context) {
     ui.suggestionList = getSuggestions(value, selectedCountry);
     renderSuggestions();
     renderInputHint(value);
+    const diagnoseSelect = container.querySelector("#diagnose-country-select");
+    if (diagnoseSelect && selectedCountry) {
+      diagnoseSelect.value = selectedCountry;
+      ui.selectedDiagnoseCountry = diagnoseSelect.value;
+    }
+  });
+
+  container.querySelector("#diagnose-country-select").addEventListener("change", (event) => {
+    ui.selectedDiagnoseCountry = event.target.value;
   });
 
   const dialog = container.querySelector("#mapping-dialog");
@@ -698,7 +746,7 @@ export function initMap(container, context) {
   });
 
   container.querySelector("#diagnose-selected").addEventListener("click", () => {
-    const country = container.querySelector("#unmapped-select").value;
+    const country = container.querySelector("#diagnose-country-select").value;
     if (!country) {
       renderDiagnoseStatus(null);
       return;
