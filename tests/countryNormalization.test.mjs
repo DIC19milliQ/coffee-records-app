@@ -36,6 +36,11 @@ test('resolveFeatureToIso2 prioritizes stable feature.id table before name', () 
   assert.equal(normalization.resolveFeatureToIso2({ properties: { ISO_A2: 'YE' } }), 'YE');
 });
 
+
+test('resolveFeatureToIso2 resolves Dominica feature id 212 to DM', () => {
+  assert.equal(normalization.resolveFeatureToIso2({ id: '212', properties: { name: 'Dominica' } }), 'DM');
+});
+
 test('normalizeCountryKey collapses invisible/control characters', () => {
   assert.equal(normalizeCountryKey('Y\u200bemen'), 'Yemen');
   assert.equal(normalizeCountryKey('  イエ\u200bメン  '), 'イエメン');

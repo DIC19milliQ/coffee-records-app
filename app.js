@@ -73,6 +73,38 @@ function saveMapping(model) {
   localStorage.setItem(MAP_KEY, JSON.stringify(normalized));
 }
 
+function resetMappingStorage() {
+  const keys = [MAP_KEY, MAP_LEGACY_KEY];
+  const removed = [];
+  const failed = [];
+  keys.forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+      removed.push(key);
+    } catch (error) {
+      failed.push({ key, error: error?.message || String(error) });
+    }
+  });
+  state.mappingModel = loadMapping();
+  state.worldFeatures = null;
+  return { removed, failed };
+}
+
+function resetDataCache() {
+  const keys = [LS_KEY];
+  const removed = [];
+  const failed = [];
+  keys.forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+      removed.push(key);
+    } catch (error) {
+      failed.push({ key, error: error?.message || String(error) });
+    }
+  });
+  return { removed, failed };
+}
+
 function saveSearchPrefs() {
   const f = state.search.filters;
   const payload = { columns: [...state.search.columns], sortKey: state.search.sortKey, sortDir: state.search.sortDir, filters: { rating: [...f.rating], roast: [...f.roast], bitterMin: f.bitterMin, bitterMax: f.bitterMax, acidMin: f.acidMin, acidMax: f.acidMax } };
@@ -127,7 +159,15 @@ const modes = {
   search: initSearch(document.getElementById("mode-search"), { state, saveSearchPrefs }),
   ranking: initRanking(document.getElementById("mode-ranking"), { state }),
   analysis: initAnalysis(document.getElementById("mode-analysis"), { state }),
-  map: initMap(document.getElementById("mode-map"), { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry })
+  map: initMap(document.getElementById("mode-map"), {
+    state,
+    loadMapping,
+    saveMapping,
+    countryNormalization,
+    openSearchWithCountry,
+    resetMappingStorage,
+    resetDataCache
+  })
 };
 
 function renderAll() {
