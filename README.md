@@ -1,88 +1,76 @@
 # coffee-records-app
 
-## 現状仕様（コードで確認した事実）
+## Mapモードの地図データ参照方式（コード事実）
 
-### 保存先とキー
-このアプリは `localStorage` のみを使用します。
+- Mapモードは `modes/map.js` の `loadWorldData()` で world-atlas を読み込みます。
+- 参照元は `shared/cacheKeys.js` の `WORLD_ATLAS_URL` で、現在は `https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json` です。
+- 取得後は `topojson.feature(topo, topo.objects.countries).features` に変換し、実行中メモリとして `state.worldFeatures` に保持します（`app.js` の `state`）。
+- さらにアプリ側キャッシュとして `localStorage` に保存し、TTL内は再利用します（詳細は次節）。
 
-- `coffeeCountryMapping_v2`
-  - 地図モードのマッピング本体（alias/country/display/meta）
-  - 定義: `shared/countryMapping.js` の `MAP_KEY`。
-- `coffeeCountryMapping_v1`
-  - 旧マッピングキー。起動時に読み取り後、`v2` に取り込み、削除。
-  - 定義: `shared/countryMapping.js` の `MAP_LEGACY_KEY`。
-- `coffeeRecordsCache_v2`
-  - API取得結果のキャッシュ。
-  - 形式: `{ savedAt, payload }`。
-  - `payload` は `{ items, updatedAt, fetchedAt }`。
-- `coffeeSearchPrefs_v1`
-  - Searchタブの列表示・ソート・フィルタ設定。
+## 地図データキャッシュ仕様（countries-50m向け）
 
-### 起動時データ取得フロー（TTL含む）
+### 保存先
+`localStorage`
 
-- `app.js` の `loadData(force = false)` が起動時に実行される。
-- `force=false` の場合、まず `coffeeRecordsCache_v2` を参照。
-- キャッシュ判定:
-  - `savedAt` と `payload` が存在
-  - `Date.now() - savedAt <= TTL_MS`
-- `TTL_MS = 60 * 60 * 1000`（60分）
-- TTL内ならキャッシュ使用（`status: キャッシュから読み込み`）。
-- TTL切れ・未保存ならAPI fetchし、`coffeeRecordsCache_v2` を更新。
+### キー
+- `worldAtlasCache_v1`: countries-50m TopoJSON本文（文字列）
+- `worldAtlasCacheMeta_v1`: メタ情報（`savedAt`, `ttlMs`, `url`）
 
-## 追加した運用UI（下部の運用パネルに集約）
+### TTL
+- `WORLD_ATLAS_TTL_MS = 14 * 24 * 60 * 60 * 1000`（14日）
+- 理由: world-atlas は頻繁に変わらないため、50mの追加ロードを長期キャッシュで吸収するため。
 
-地図モードの「運用パネル > マッピング管理」に以下を追加。
+### 更新条件
+- TTL内: `worldAtlasCache_v1` を読み込み（fetchしない）
+- TTL切れ/未保存/パース失敗: `countries-50m` を再fetchして両キーを更新
 
-- 「地図マッピングをリセット」
-  - 実行前に confirm。
-  - 削除対象キー: `coffeeCountryMapping_v2`, `coffeeCountryMapping_v1`。
-  - その後、デフォルトマッピングを再生成して再描画（初期状態へ復帰）。
-  - 画面に「削除キー一覧」「失敗有無」を表示。
-- 「データキャッシュをリセット」
-  - 実行前に confirm。
-  - 削除対象キー: `coffeeRecordsCache_v2`。
-  - 画面に「削除キー一覧」「失敗有無」「必要なら再読込案内」を表示。
+### 診断ログ（地図取得系）
+`console.info("[Map] world atlas loaded", { source, url, featureCount })`
+- `source: "network"` = fetchで取得
+- `source: "cache"` = localStorageキャッシュを使用
 
-どちらもアプリ使用キーのみ削除し、全ストレージ削除は行わない実装です。
+## データキャッシュ全体（コーヒー + 地図）
 
-## 診断ログの見方
+### コーヒーデータキャッシュ
+- キー: `coffeeRecordsCache_v2`
+- TTL: `TTL_MS = 60 * 60 * 1000`（60分）
 
-地図モードの「診断ログ」から対象国を選び「診断ログ出力」を押すと、UI表示と `console.info("[Map Mapping Diagnose]")` が出力されます。
+### 「データキャッシュをリセット」で削除される対象
+Mapモードの「データキャッシュをリセット」は confirm 後に次をキー限定で削除します。
 
-- `rawCountry`
-  - 記録データにある生の国名（正規化後）。
-- `iso2`
-  - マッピング解決結果（`resolveAliasToIso2` の結果）。
-- `feature`
-  - `resolveFeatureToIso2` で地図 feature 側にISO2が見つかるか。
-  - `FOUND/NOT FOUND` と key（alias token 等）を表示。
-- `join`
-  - 集計済みデータ `mappedStats` にそのISO2で合流できたか。
-  - `JOINED/NOT JOINED` を表示。
+- コーヒーキャッシュ
+  - `coffeeRecordsCache_v2`
+- 地図キャッシュ
+  - `worldAtlasCache_v1`
+  - `worldAtlasCacheMeta_v1`
+
+`#reset-status` には、削除した項目（コーヒーキャッシュ/地図キャッシュ）、キー名、失敗有無を表示します。
+
+## diagnose の見方
+
+Mapモード > 診断ログで「診断ログ出力」を押すと、UIと `console.info("[Map Mapping Diagnose]")` へ結果が出ます。
+
+- `rawCountry`: 記録の国名（正規化後）
+- `iso2`: `resolveAliasToIso2` で解決されたISO2
+- `feature`: そのISO2が地図feature集合に存在するか（`FOUND/NOT FOUND`）
+- `join`: そのISO2で集計結果に合流できたか（`JOINED/NOT JOINED`）
 
 ## mapped-but-unjoinable の修正入口
 
-発生時は以下を順に確認します。
-
 1. `shared/countryNormalization.js`
    - `resolveFeatureToIso2`
-   - `FEATURE_ID_TO_ISO2`
    - `resolveToIso2`
+   - `FEATURE_ID_TO_ISO2`（最後のフォールバック）
 2. `shared/countryMapping.js`
-   - `tokenFromIso2`（`iso2_${lower}`）
    - `resolveAliasToIso2`
+   - `tokenFromIso2`
    - `normalizeModel`
 3. `modes/map.js`
-   - `buildCountryAggregation`（unjoinable判定）
+   - `buildCountryAggregation`（feature未存在/合流判定）
    - `renderDiagnoseStatus` / `emitMappingTrace`
 
-## ドミニカ国（DM）対応で今回修正した事実
+## Dominica（DM）改善の事実
 
-- 症状例: `Dominica / iso2: DM / feature: NOT FOUND (key: iso2_dm)`。
-- 修正:
-  - `shared/countryNormalization.js` の `FEATURE_ID_TO_ISO2` に `"212": "DM"` を追加。
-- 意図:
-  - `world-atlas` feature ID 解決で `212 -> DM` が可能になり、feature判定とjoinの整合性が取れる。
-- テスト追加:
-  - `tests/countryNormalization.test.mjs` に `id: '212'` が `DM` に解決されるケースを追加。
-
+- 地図参照元を `countries-110m` から `countries-50m` へ切替。
+- `resolveFeatureToIso2` は `ISO_A2/ISO_A3/name` を優先し、必要時のみ `feature.id` + `FEATURE_ID_TO_ISO2` へフォールバックする順に調整。
+- 実確認として、`countries-50m` 由来 feature に対して `Dominica (id: 212)` が `DM` に解決されるテスト/診断を実施。
