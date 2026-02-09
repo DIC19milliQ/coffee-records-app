@@ -1,6 +1,7 @@
 import { normalizeText } from "../shared/utils.js";
 import { inspectCountryString, normalizeCountryKey } from "../shared/countryNormalization.js";
 import { deleteAlias, resolveAliasToIso2, tokenFromIso2, upsertMapping } from "../shared/countryMapping.js";
+import { WORLD_ATLAS_CACHE_KEY, WORLD_ATLAS_CACHE_META_KEY, WORLD_ATLAS_TTL_MS, WORLD_ATLAS_URL } from "../shared/cacheKeys.js";
 
 const RATING_SCORE = { S: 5, A: 3, B: 1 };
 
@@ -162,10 +163,42 @@ export function initMap(container, context) {
 
   async function loadWorldData() {
     if (state.worldFeatures) return state.worldFeatures;
-    const response = await fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
-    const topo = await response.json();
+    let topo = null;
+    let source = "network";
+    try {
+      const cachedTopoJson = localStorage.getItem(WORLD_ATLAS_CACHE_KEY);
+      const cachedMetaRaw = localStorage.getItem(WORLD_ATLAS_CACHE_META_KEY);
+      const cachedMeta = JSON.parse(cachedMetaRaw || "null");
+      const isFresh = cachedTopoJson
+        && cachedMeta?.savedAt
+        && Date.now() - Number(cachedMeta.savedAt) <= WORLD_ATLAS_TTL_MS;
+      if (isFresh) {
+        topo = JSON.parse(cachedTopoJson);
+        source = "cache";
+      }
+    } catch (error) {
+      console.warn("[Map] world atlas cache parse failed; refetching.", error);
+    }
+
+    if (!topo) {
+      const response = await fetch(WORLD_ATLAS_URL);
+      if (!response.ok) throw new Error(`Failed to fetch world atlas: ${response.status}`);
+      const topoText = await response.text();
+      topo = JSON.parse(topoText);
+      try {
+        localStorage.setItem(WORLD_ATLAS_CACHE_KEY, topoText);
+        localStorage.setItem(
+          WORLD_ATLAS_CACHE_META_KEY,
+          JSON.stringify({ savedAt: Date.now(), ttlMs: WORLD_ATLAS_TTL_MS, url: WORLD_ATLAS_URL })
+        );
+      } catch (error) {
+        console.warn("[Map] world atlas cache save failed.", error);
+      }
+    }
+
     const features = topojson.feature(topo, topo.objects.countries).features;
     state.worldFeatures = features;
+    console.info("[Map] world atlas loaded", { source, url: WORLD_ATLAS_URL, featureCount: features.length });
     return features;
   }
 
@@ -805,13 +838,24 @@ export function initMap(container, context) {
   });
 
   container.querySelector("#reset-data-cache").addEventListener("click", () => {
-    const shouldReset = window.confirm("コーヒーデータ取得キャッシュを削除します。よろしいですか？");
+    const shouldReset = window.confirm("コーヒーデータ/地図データのキャッシュを削除します。よろしいですか？");
     if (!shouldReset) return;
     const result = resetDataCache?.() || { removed: [], failed: [] };
+    const removedByLabel = result.removed.reduce((acc, entry) => {
+      if (!acc.has(entry.label)) acc.set(entry.label, []);
+      acc.get(entry.label).push(entry.key);
+      return acc;
+    }, new Map());
+    const removedLines = removedByLabel.size
+      ? [...removedByLabel.entries()].map(([label, keys]) => `削除: ${label} (${keys.join(", ")})`)
+      : ["削除: なし"];
+    const failedLines = result.failed.length
+      ? result.failed.map((entry) => `失敗: ${entry.label} (${entry.key}) - ${entry.error}`)
+      : ["失敗: なし"];
     ui.resetMessages = [
       "データキャッシュをリセットしました。",
-      `削除キー: ${result.removed.length ? result.removed.join(", ") : "なし"}`,
-      result.failed.length ? `失敗: ${result.failed.map((entry) => `${entry.key} (${entry.error})`).join(", ")}` : "失敗: なし",
+      ...removedLines,
+      ...failedLines,
       "最新データが必要な場合は右上の再読込を実行してください。"
     ];
     renderResetStatus();

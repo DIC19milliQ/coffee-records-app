@@ -30,7 +30,8 @@ test('YE and YD both resolve to YE', () => {
   assert.equal(normalization.resolveToIso2(' y d '), 'YE');
 });
 
-test('resolveFeatureToIso2 prioritizes stable feature.id table before name', () => {
+test('resolveFeatureToIso2 prioritizes ISO/name properties and then falls back to feature.id table', () => {
+  assert.equal(normalization.resolveFeatureToIso2({ id: '156', properties: { ISO_A2: 'YE' } }), 'YE');
   assert.equal(normalization.resolveFeatureToIso2({ id: '156', properties: { name: 'China mainland' } }), 'CN');
   assert.equal(normalization.resolveFeatureToIso2({ properties: { ISO_A2: 'YD' } }), 'YE');
   assert.equal(normalization.resolveFeatureToIso2({ properties: { ISO_A2: 'YE' } }), 'YE');

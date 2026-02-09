@@ -149,15 +149,6 @@ export function buildCountryNormalization(additionalAliases = {}) {
     if (!feature) return null;
     const props = feature.properties || {};
 
-    const idCandidates = [feature.id, props.id, props.ID].filter((v) => v !== undefined && v !== null && String(v).trim());
-    for (const candidate of idCandidates) {
-      const idKey = String(candidate).trim();
-      const resolvedByIdTable = FEATURE_ID_TO_ISO2[idKey];
-      if (resolvedByIdTable) return LEGACY_ISO2_TO_CANONICAL[resolvedByIdTable] || resolvedByIdTable;
-      const resolvedById = resolveToIso2(idKey);
-      if (resolvedById) return resolvedById;
-    }
-
     const isoCandidates = [
       props.ISO_A2,
       props.iso_a2,
@@ -184,6 +175,15 @@ export function buildCountryNormalization(additionalAliases = {}) {
     for (const candidate of nameCandidates) {
       const resolved = resolveToIso2(String(candidate));
       if (resolved) return resolved;
+    }
+
+    const idCandidates = [feature.id, props.id, props.ID].filter((v) => v !== undefined && v !== null && String(v).trim());
+    for (const candidate of idCandidates) {
+      const idKey = String(candidate).trim();
+      const resolvedById = resolveToIso2(idKey);
+      if (resolvedById) return resolvedById;
+      const resolvedByIdTable = FEATURE_ID_TO_ISO2[idKey];
+      if (resolvedByIdTable) return LEGACY_ISO2_TO_CANONICAL[resolvedByIdTable] || resolvedByIdTable;
     }
     return null;
   }

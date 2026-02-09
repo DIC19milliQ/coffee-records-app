@@ -6,10 +6,10 @@ import { buildCountryNormalization, normalizeCountryKey } from "./shared/country
 import { MAP_KEY, MAP_LEGACY_KEY, applyLegacyMapping, createEmptyMappingModel, normalizeModel } from "./shared/countryMapping.js";
 import { DEFAULT_VISIBLE_COLUMNS, LEGACY_ROAST_MAP, ROAST_OPTIONS, SEARCH_COLUMNS } from "./shared/labels.js";
 import { normalizeText } from "./shared/utils.js";
+import { DATA_CACHE_KEY, WORLD_ATLAS_CACHE_KEY, WORLD_ATLAS_CACHE_META_KEY } from "./shared/cacheKeys.js";
 
 const API_URL = "https://script.google.com/macros/s/AKfycbwTVElQ-Ao7U2lb3MGsYFj_Qy5K0C1bSw_IPk0ZFNPV9d0mGrpOZuukZCW9rbOgtc_6/exec";
 const TTL_MS = 60 * 60 * 1000;
-const LS_KEY = "coffeeRecordsCache_v2";
 const SEARCH_PREFS_KEY = "coffeeSearchPrefs_v1";
 
 const DEFAULT_MAPPING = {
@@ -31,10 +31,10 @@ const updatedEl = document.getElementById("updated-at");
 const reloadBtn = document.getElementById("reload");
 
 function safeParseJson(text) { return JSON.parse(text.replace(/^﻿/, "")); }
-function cacheSet(payload) { localStorage.setItem(LS_KEY, JSON.stringify({ savedAt: Date.now(), payload })); }
+function cacheSet(payload) { localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), payload })); }
 function cacheGet() {
   try {
-    const p = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+    const p = JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || "null");
     if (!p?.savedAt || !p?.payload) return null;
     if (Date.now() - p.savedAt > TTL_MS) return null;
     return p.payload;
@@ -91,17 +91,22 @@ function resetMappingStorage() {
 }
 
 function resetDataCache() {
-  const keys = [LS_KEY];
+  const targets = [
+    { label: "コーヒーキャッシュ", key: DATA_CACHE_KEY },
+    { label: "地図キャッシュ", key: WORLD_ATLAS_CACHE_KEY },
+    { label: "地図キャッシュ", key: WORLD_ATLAS_CACHE_META_KEY }
+  ];
   const removed = [];
   const failed = [];
-  keys.forEach((key) => {
+  targets.forEach(({ label, key }) => {
     try {
       localStorage.removeItem(key);
-      removed.push(key);
+      removed.push({ label, key });
     } catch (error) {
-      failed.push({ key, error: error?.message || String(error) });
+      failed.push({ label, key, error: error?.message || String(error) });
     }
   });
+  state.worldFeatures = null;
   return { removed, failed };
 }
 
@@ -227,7 +232,7 @@ async function loadData(force = false) {
 }
 
 reloadBtn.addEventListener("click", () => {
-  localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(DATA_CACHE_KEY);
   loadData(true);
 });
 
