@@ -28,12 +28,12 @@ export function inspectCountryString(value) {
 }
 
 const ISO3_BY_ISO2 = {
-  BR: "BRA", CO: "COL", ET: "ETH", GT: "GTM", HN: "HND", ID: "IDN", KE: "KEN", PE: "PER", RW: "RWA", TZ: "TZA", VN: "VNM", YE: "YEM", CR: "CRI", PA: "PAN", BO: "BOL", BI: "BDI", EC: "ECU", SV: "SLV", IN: "IND", JM: "JAM", NI: "NIC", PG: "PNG", UG: "UGA", US: "USA", JP: "JPN", TH: "THA"
+  BR: "BRA", CO: "COL", ET: "ETH", GT: "GTM", HN: "HND", ID: "IDN", KE: "KEN", PE: "PER", RW: "RWA", TZ: "TZA", VD: "VNM", YE: "YEM", CR: "CRI", PA: "PAN", BO: "BOL", BI: "BDI", EC: "ECU", SV: "SLV", IN: "IND", JM: "JAM", NI: "NIC", PG: "PNG", UG: "UGA", US: "USA", JP: "JPN", TH: "THA"
 };
 
 
 const FEATURE_ID_TO_ISO2 = {
-  "76": "BR", "170": "CO", "231": "ET", "320": "GT", "340": "HN", "360": "ID", "404": "KE", "604": "PE", "646": "RW", "834": "TZ", "704": "VN", "887": "YE", "188": "CR", "591": "PA", "68": "BO", "108": "BI", "218": "EC", "222": "SV", "356": "IN", "388": "JM", "558": "NI", "598": "PG", "800": "UG", "764": "TH", "156": "CN", "392": "JP", "104": "MM", "212": "DM", "214": "DO", "840": "US", "826": "GB"
+  "76": "BR", "170": "CO", "231": "ET", "320": "GT", "340": "HN", "360": "ID", "404": "KE", "604": "PE", "646": "RW", "834": "TZ", "704": "VD", "887": "YE", "188": "CR", "591": "PA", "68": "BO", "108": "BI", "218": "EC", "222": "SV", "356": "IN", "388": "JM", "558": "NI", "598": "PG", "800": "UG", "764": "TH", "156": "CN", "392": "JP", "104": "MM", "212": "DM", "214": "DO", "840": "US", "826": "GB"
 };
 
 const LEGACY_ISO2_TO_CANONICAL = {
@@ -54,7 +54,7 @@ const EXTRA_ALIASES = {
   KP: ["North Korea"],
   LA: ["Laos", "Lao People's Democratic Republic"],
   MM: ["Myanmar", "Burma"],
-  VN: ["Vietnam", "Viet Nam", "ベトナム"],
+  VD: ["Vietnam", "Viet Nam", "ベトナム"],
   TW: ["Taiwan", "台湾"],
   RU: ["Russia", "Russian Federation"],
   MD: ["Moldova", "Moldova, Republic of"],
