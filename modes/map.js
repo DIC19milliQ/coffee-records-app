@@ -49,7 +49,7 @@ function scoreCandidate(queryNorm, candidateNorm) {
 }
 
 export function initMap(container, context) {
-  const { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry } = context;
+  const { state, loadMapping, saveMapping, countryNormalization, openSearchWithCountry, resetMappingStorage, resetDataCache } = context;
   const isoCandidates = countryNormalization.records.map((record) => ({ code: record.iso2, name: record.enName }));
   const ui = {
     metric: "uniqueBeans",
@@ -60,7 +60,8 @@ export function initMap(container, context) {
     selectedUnjoinableIso2: "",
     latestSaveStatus: "",
     focusIso2: "",
-    selectedDiagnoseCountry: ""
+    selectedDiagnoseCountry: "",
+    resetMessages: []
   };
   let countryAliasIndex = new Map();
   let aliasDictionaryLoaded = false;
@@ -117,6 +118,11 @@ export function initMap(container, context) {
 
         <details class="ops-section">
           <summary>マッピング管理 <span id="mapping-count-badge" class="ops-badge">0</span></summary>
+          <div class="ops-actions" style="margin-top:8px;">
+            <button id="reset-mapping" class="ghost">地図マッピングをリセット</button>
+            <button id="reset-data-cache" class="ghost">データキャッシュをリセット</button>
+          </div>
+          <div id="reset-status" class="muted" style="white-space:pre-wrap;margin-top:6px;">未実行</div>
           <div class="grid-2" style="margin-top:8px;">
             <div><label>対象国</label><select id="unmapped-select"></select></div>
             <div>
@@ -332,6 +338,19 @@ export function initMap(container, context) {
       `feature: ${hasFeature ? "FOUND" : "NOT FOUND"} (key: ${featureDetail})`,
       `join: ${hasJoin ? "JOINED" : "NOT JOINED"}`
     ].join("\n");
+  }
+
+  function renderResetStatus() {
+    const host = container.querySelector("#reset-status");
+    if (!host) return;
+    if (!ui.resetMessages.length) {
+      host.classList.remove("is-warning");
+      host.textContent = "未実行";
+      return;
+    }
+    const hasError = ui.resetMessages.some((line) => line.includes("失敗"));
+    host.classList.toggle("is-warning", hasError);
+    host.textContent = ui.resetMessages.join("\n");
   }
 
   function renderOperationBadges({ unmapped = [], unjoinable = [], diagnoseSelected = "", mappingRows = 0 } = {}) {
@@ -695,8 +714,9 @@ export function initMap(container, context) {
       unmapped: stats.unmapped,
       unjoinable: stats.unjoinable,
       diagnoseSelected: ui.selectedDiagnoseCountry,
-      mappingRows: state.mappingModel?.entries?.length || 0
+      mappingRows: Object.keys(state.mappingModel?.aliasLayer || {}).length
     });
+    renderResetStatus();
   }
 
   state.mappingModel = loadMapping();
@@ -758,13 +778,43 @@ export function initMap(container, context) {
     ui.selectedDiagnoseCountry = event.target.value;
     renderOperationBadges({
       diagnoseSelected: ui.selectedDiagnoseCountry,
-      mappingRows: state.mappingModel?.entries?.length || 0
+      mappingRows: Object.keys(state.mappingModel?.aliasLayer || {}).length
     });
   });
 
   container.querySelector("#mapping-search").addEventListener("input", (event) => {
     ui.manageFilter = event.target.value;
     renderMappingManagement(mapApi?.unmapped || [], mapApi?.featureIso2Set || new Set(), mapApi?.mappedStats || new Map());
+  });
+
+
+  container.querySelector("#reset-mapping").addEventListener("click", async () => {
+    const shouldReset = window.confirm("地図マッピング保存を初期化します。よろしいですか？");
+    if (!shouldReset) return;
+    const result = resetMappingStorage?.() || { removed: [], failed: [] };
+    ui.selectedCountryIso2 = "";
+    ui.focusIso2 = "";
+    ui.latestSaveStatus = "";
+    ui.selectedDiagnoseCountry = "";
+    ui.resetMessages = [
+      "地図マッピングをリセットしました。",
+      `削除キー: ${result.removed.length ? result.removed.join(", ") : "なし"}`,
+      result.failed.length ? `失敗: ${result.failed.map((entry) => `${entry.key} (${entry.error})`).join(", ")}` : "失敗: なし"
+    ];
+    await renderMap();
+  });
+
+  container.querySelector("#reset-data-cache").addEventListener("click", () => {
+    const shouldReset = window.confirm("コーヒーデータ取得キャッシュを削除します。よろしいですか？");
+    if (!shouldReset) return;
+    const result = resetDataCache?.() || { removed: [], failed: [] };
+    ui.resetMessages = [
+      "データキャッシュをリセットしました。",
+      `削除キー: ${result.removed.length ? result.removed.join(", ") : "なし"}`,
+      result.failed.length ? `失敗: ${result.failed.map((entry) => `${entry.key} (${entry.error})`).join(", ")}` : "失敗: なし",
+      "最新データが必要な場合は右上の再読込を実行してください。"
+    ];
+    renderResetStatus();
   });
 
   container.querySelector("#diagnose-selected").addEventListener("click", () => {
