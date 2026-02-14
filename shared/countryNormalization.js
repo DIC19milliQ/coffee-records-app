@@ -41,6 +41,7 @@ const LEGACY_ISO2_TO_CANONICAL = {
   DD: "DE",
   FX: "FR",
   TP: "TL",
+  VN: "VD",
   YD: "YE",
   YU: "RS",
   ZR: "CD"
@@ -110,6 +111,16 @@ export function buildCountryNormalization(additionalAliases = {}) {
       record.iso3 = iso3;
     });
     console.warn("Country normalization fallback is active; names may be limited.");
+  }
+
+  if (!byIso2.has("VD") && byIso2.has("VN")) {
+    const vnRecord = byIso2.get("VN");
+    byIso2.set("VD", {
+      ...vnRecord,
+      iso2: "VD",
+      iso3: "VNM",
+      aliases: [...new Set([...(vnRecord.aliases || []), "VD", ...(EXTRA_ALIASES.VD || [])])]
+    });
   }
 
   const byIso3 = new Map();
