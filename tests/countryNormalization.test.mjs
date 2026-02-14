@@ -30,6 +30,13 @@ test('YE and YD both resolve to YE', () => {
   assert.equal(normalization.resolveToIso2(' y d '), 'YE');
 });
 
+test('Vietnam aliases resolve to VD for map feature compatibility', () => {
+  assert.equal(normalization.resolveToIso2('Vietnam'), 'VD');
+  assert.equal(normalization.resolveToIso2('Viet Nam'), 'VD');
+  assert.equal(normalization.resolveToIso2('ベトナム'), 'VD');
+  assert.equal(normalization.resolveToIso2('vn'), 'VD');
+});
+
 test('resolveFeatureToIso2 prioritizes ISO/name properties and then falls back to feature.id table', () => {
   assert.equal(normalization.resolveFeatureToIso2({ id: '156', properties: { ISO_A2: 'YE' } }), 'YE');
   assert.equal(normalization.resolveFeatureToIso2({ id: '156', properties: { name: 'China mainland' } }), 'CN');

@@ -13,7 +13,7 @@ const TTL_MS = 60 * 60 * 1000;
 const SEARCH_PREFS_KEY = "coffeeSearchPrefs_v1";
 
 const DEFAULT_MAPPING = {
-  "ブラジル": "BR", "コロンビア": "CO", "エチオピア": "ET", "グアテマラ": "GT", "ホンジュラス": "HN", "インドネシア": "ID", "ケニア": "KE", "ペルー": "PE", "ルワンダ": "RW", "タンザニア": "TZ", "ベトナム": "VN", "イエメン": "YE", "コスタリカ": "CR", "パナマ": "PA", "ボリビア": "BO", "ブルンジ": "BI", "エクアドル": "EC", "エルサルバドル": "SV", "インド": "IN", "ジャマイカ": "JM", "ニカラグア": "NI", "パプアニューギニア": "PG", "ウガンダ": "UG"
+  "ブラジル": "BR", "コロンビア": "CO", "エチオピア": "ET", "グアテマラ": "GT", "ホンジュラス": "HN", "インドネシア": "ID", "ケニア": "KE", "ペルー": "PE", "ルワンダ": "RW", "タンザニア": "TZ", "ベトナム": "VD", "イエメン": "YE", "コスタリカ": "CR", "パナマ": "PA", "ボリビア": "BO", "ブルンジ": "BI", "エクアドル": "EC", "エルサルバドル": "SV", "インド": "IN", "ジャマイカ": "JM", "ニカラグア": "NI", "パプアニューギニア": "PG", "ウガンダ": "UG"
 };
 const countryNormalization = buildCountryNormalization();
 
@@ -51,7 +51,6 @@ function loadMapping() {
   try {
     const savedV2 = JSON.parse(localStorage.getItem(MAP_KEY) || "null");
     if (savedV2) model = normalizeModel(savedV2, countryNormalization);
-    model = applyLegacyMapping(model, normalizedDefaults, countryNormalization);
   } catch {
     // ignore parse errors and fallback to defaults
   }
